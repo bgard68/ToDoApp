@@ -1,0 +1,35 @@
+# Runs the API and the nginx-served SPA together.
+#   1) copy .env.example to .env and set JWT_KEY (and optionally GOOGLE_CLIENT_ID)
+#   2) docker compose up --build
+#   3) open http://localhost:8080
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    restart: unless-stopped
+    environment:
+      ASPNETCORE_URLS: http://+:8080
+      ASPNETCORE_ENVIRONMENT: Production
+      # Required — the app will not start without a signing key.
+      Jwt__Key: ${JWT_KEY:?set JWT_KEY in .env}
+      ConnectionStrings__DefaultConnection: Data Source=/data/todoapp.db
+      Cors__AllowedOrigins__0: http://localhost:8080
+      Authentication__Google__ClientId: ${GOOGLE_CLIENT_ID:-}
+    volumes:
+      - todo-data:/data
+    # Not published to the host; only the web container reaches it.
+    expose:
+      - "8080"
+
+  web:
+    build:
+      context: ./frontend
+    restart: unless-stopped
+    depends_on:
+      - api
+    ports:
+      - "8080:80"
+
+volumes:
+  todo-data:

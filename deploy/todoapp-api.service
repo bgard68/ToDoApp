@@ -1,0 +1,24 @@
+# systemd unit for running the published API behind a reverse proxy.
+# Install: copy to /etc/systemd/system/todoapp-api.service, then:
+#   sudo systemctl daemon-reload && sudo systemctl enable --now todoapp-api
+[Unit]
+Description=TodoApp API
+After=network.target
+
+[Service]
+WorkingDirectory=/var/www/todoapp-api
+ExecStart=/usr/bin/dotnet /var/www/todoapp-api/TodoApp.WebApi.dll
+Restart=always
+RestartSec=10
+KillSignal=SIGINT
+SyslogIdentifier=todoapp-api
+User=www-data
+Environment=ASPNETCORE_ENVIRONMENT=Production
+Environment=ASPNETCORE_URLS=http://127.0.0.1:5080
+# Replace with a real secret (or use an EnvironmentFile / secrets manager).
+Environment=Jwt__Key=CHANGE_ME_TO_A_LONG_RANDOM_SECRET
+Environment=ConnectionStrings__DefaultConnection=Data Source=/var/www/todoapp-api/todoapp.db
+# Environment=Authentication__Google__ClientId=your-google-client-id
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,28 @@
+# syntax=docker/dockerfile:1
+# Multi-stage build for the ASP.NET Core Web API.
+# Build context is the repository root: docker build -f Dockerfile.api -t todoapp-api .
+
+FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
+WORKDIR /src
+
+# Restore first (leverages layer caching) by copying only the project files.
+COPY src/TodoApp.Domain/TodoApp.Domain.csproj          src/TodoApp.Domain/
+COPY src/TodoApp.Application/TodoApp.Application.csproj  src/TodoApp.Application/
+COPY src/TodoApp.Infrastructure/TodoApp.Infrastructure.csproj src/TodoApp.Infrastructure/
+COPY src/TodoApp.WebApi/TodoApp.WebApi.csproj            src/TodoApp.WebApi/
+RUN dotnet restore src/TodoApp.WebApi/TodoApp.WebApi.csproj
+
+# Copy the rest of the source and publish.
+COPY src/ src/
+RUN dotnet publish src/TodoApp.WebApi/TodoApp.WebApi.csproj \
+    -c Release -o /app/publish /p:UseAppHost=false
+
+FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS final
+WORKDIR /app
+COPY --from=build /app/publish .
+
+ENV ASPNETCORE_URLS=http://+:8080
+EXPOSE 8080
+
+# Jwt__Key MUST be provided at runtime (the app refuses to start without it).
+ENTRYPOINT ["dotnet", "TodoApp.WebApi.dll"]
