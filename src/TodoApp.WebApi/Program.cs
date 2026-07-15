@@ -66,13 +66,51 @@ builder.Services.AddSwaggerGen(options =>
 
 var app = builder.Build();
 
-// Create and seed the database on startup.
+// Create and seed the database on startup — but never let a cold/paused database (e.g. Azure
+// SQL serverless waking from auto-pause) block the app from starting. If the DB is unreachable
+// here, we log and carry on; the schema/seed is retried in the background until it succeeds, and
+// requests ride out the wake-up via EF's EnableRetryOnFailure.
 using (var scope = app.Services.CreateScope())
 {
-    var context = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
-    var passwordHasher = scope.ServiceProvider.GetRequiredService<IPasswordHasher>();
-    var dateTime = scope.ServiceProvider.GetRequiredService<IDateTimeProvider>();
-    await DbInitializer.InitializeAsync(context, passwordHasher, dateTime);
+    var services = scope.ServiceProvider;
+    var startupLogger = services.GetRequiredService<ILogger<Program>>();
+    try
+    {
+        var context = services.GetRequiredService<ApplicationDbContext>();
+        var passwordHasher = services.GetRequiredService<IPasswordHasher>();
+        var dateTime = services.GetRequiredService<IDateTimeProvider>();
+        await DbInitializer.InitializeAsync(context, passwordHasher, dateTime);
+    }
+    catch (Exception ex)
+    {
+        startupLogger.LogWarning(ex,
+            "Database initialization was deferred at startup (database may be resuming). " +
+            "It will be retried in the background.");
+
+        // Retry the initialization off the startup path so the app can start serving immediately.
+        _ = Task.Run(async () =>
+        {
+            for (var attempt = 1; attempt <= 10; attempt++)
+            {
+                await Task.Delay(TimeSpan.FromSeconds(15));
+                try
+                {
+                    using var retryScope = app.Services.CreateScope();
+                    var rs = retryScope.ServiceProvider;
+                    await DbInitializer.InitializeAsync(
+                        rs.GetRequiredService<ApplicationDbContext>(),
+                        rs.GetRequiredService<IPasswordHasher>(),
+                        rs.GetRequiredService<IDateTimeProvider>());
+                    startupLogger.LogInformation("Database initialization completed on background attempt {Attempt}.", attempt);
+                    break;
+                }
+                catch (Exception retryEx)
+                {
+                    startupLogger.LogWarning(retryEx, "Background database initialization attempt {Attempt} failed.", attempt);
+                }
+            }
+        });
+    }
 }
 
 app.UseExceptionHandler();
