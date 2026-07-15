@@ -24,9 +24,14 @@ public class CategoryConfiguration : IEntityTypeConfiguration<Category>
         // A user can't have two categories with the same name.
         builder.HasIndex(c => new { c.UserId, c.Name }).IsUnique();
 
+        // Deleting a user still removes their categories, but the cascade is done client-side
+        // (EF) rather than by the database. This avoids SQL Server's "multiple cascade paths"
+        // error: TodoItems is already reachable from Users directly, so a second DB-level
+        // cascade from Users through Categories to TodoItems isn't allowed. SQLite doesn't
+        // enforce this, which is why it only surfaced on Azure SQL.
         builder.HasOne<User>()
             .WithMany()
             .HasForeignKey(c => c.UserId)
-            .OnDelete(DeleteBehavior.Cascade);
+            .OnDelete(DeleteBehavior.ClientCascade);
     }
 }

@@ -3,6 +3,10 @@ bin/
 obj/
 publish/
 *.user
+# Visual Studio publish profiles — can contain the App Service name and deploy credentials.
+*.pubxml
+*.pubxml.user
+PublishProfiles/
 *.suo
 *.rsuser
 *.userosscache
