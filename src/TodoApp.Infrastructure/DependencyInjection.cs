@@ -14,11 +14,32 @@ public static class DependencyInjection
         this IServiceCollection services,
         IConfiguration configuration)
     {
-        var connectionString = configuration.GetConnectionString("DefaultConnection")
-            ?? "Data Source=todoapp.db";
+        // Provider is chosen by config so the same build runs on SQLite locally and Azure SQL
+        // (SQL Server) in production — set Database:Provider=SqlServer + a connection string.
+        var provider = configuration.GetValue<string>("Database:Provider") ?? "Sqlite";
 
         services.AddDbContext<ApplicationDbContext>(options =>
-            options.UseSqlite(connectionString));
+        {
+            if (provider.Equals("SqlServer", StringComparison.OrdinalIgnoreCase))
+            {
+                var sqlConnection = configuration.GetConnectionString("DefaultConnection")
+                    ?? throw new InvalidOperationException(
+                        "ConnectionStrings:DefaultConnection is required when Database:Provider is SqlServer.");
+                // Retry transient failures — notably Azure SQL serverless "waking from
+                // auto-pause" connection timeouts (error -2), so the first request after the
+                // database has been idle succeeds instead of throwing a 500.
+                options.UseSqlServer(sqlConnection, sql => sql.EnableRetryOnFailure(
+                    maxRetryCount: 8,
+                    maxRetryDelay: TimeSpan.FromSeconds(15),
+                    errorNumbersToAdd: new[] { -2 }));
+            }
+            else
+            {
+                var sqliteConnection = configuration.GetConnectionString("DefaultConnection")
+                    ?? "Data Source=todoapp.db";
+                options.UseSqlite(sqliteConnection);
+            }
+        });
 
         services.AddScoped<IApplicationDbContext>(provider =>
             provider.GetRequiredService<ApplicationDbContext>());

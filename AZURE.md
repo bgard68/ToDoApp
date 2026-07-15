@@ -45,11 +45,16 @@ Set shell variables reused below (choose globally-unique app names):
 
 ```bash
 RG=todoapp-rg
-LOCATION=eastus
-SWA_LOCATION=eastus2            # Static Web Apps has a limited region list
+LOCATION=centralus
+SWA_LOCATION=centralus          # Static Web Apps has a limited region list; Central US is supported
 PLAN=todoapp-plan
 API_APP=todoapp-api-$RANDOM     # must be globally unique -> <API_APP>.azurewebsites.net
 SWA_APP=todoapp-web
+
+# Database (passwordless via managed identity — no secret in the string).
+SQL_SERVER=<your-sql-server>    # your Azure SQL logical server name (globally unique)
+SQL_DB=<your-database>          # e.g. the database you created
+SQL_CONNECTION="Server=tcp:${SQL_SERVER}.database.windows.net,1433;Database=${SQL_DB};Authentication=Active Directory Default;Encrypt=True;Connect Timeout=60;"
 ```
 
 ---
@@ -139,13 +144,48 @@ az webapp config appsettings set -g $RG -n $API_APP --settings \
   Jwt__Issuer="TodoApp" \
   Jwt__Audience="TodoAppClient" \
   Authentication__Google__ClientId="<web-client-id>" \
-  ConnectionStrings__DefaultConnection="Data Source=/home/todoapp.db"
+  Database__Provider="SqlServer" \
+  ConnectionStrings__DefaultConnection="$SQL_CONNECTION"
 ```
 
-> `/home` is Azure App Service's persistent storage, so the SQLite file survives restarts. For
-> real workloads use **Azure SQL** or **Azure Database for PostgreSQL** and switch the provider
-> + migrations (see DEPLOYMENT.md §6); then set
-> `ConnectionStrings__DefaultConnection` to that server's connection string.
+> The connection string is taken from the `$SQL_CONNECTION` shell variable defined in step 0 —
+> it isn't hardcoded here. It's a passwordless (managed-identity) string with no secret, so it's
+> safe either way, but keeping it in a variable means the literal server name lives in one place.
+> If you set the value in the portal instead, you can drop the `ConnectionStrings__DefaultConnection`
+> line from this command entirely — App Service already holds it.
+
+> **Database provider.** The app runs on SQLite by default; setting `Database__Provider=SqlServer`
+> plus a SQL connection string switches it to **Azure SQL** with no code change (the provider is
+> chosen in `AddInfrastructure`). On first startup the app's `EnsureCreated` builds the schema
+> and seeds the demo data.
+>
+> **Passwordless connection (recommended).** The connection string above has **no user id or
+> password** — `Authentication=Active Directory Default` makes the API connect as its Azure
+> **managed identity**, so no secret is stored anywhere. Set it up once:
+>
+> 1. App Service → **Identity → System assigned → On** (creates an Entra identity named `$API_APP`).
+> 2. Ensure the SQL *server* has you as its **Microsoft Entra admin** (set at server creation
+>    with "Both" authentication).
+> 3. Connect to the `taskboard` database as that Entra admin (portal **Query editor**, Microsoft
+>    Entra sign-in) and grant the identity access — the user name must match the App Service name:
+>
+>    ```sql
+>    CREATE USER [<API_APP>] FROM EXTERNAL PROVIDER;
+>    ALTER ROLE db_datareader ADD MEMBER [<API_APP>];
+>    ALTER ROLE db_datawriter ADD MEMBER [<API_APP>];
+>    ALTER ROLE db_ddladmin  ADD MEMBER [<API_APP>];  -- lets EnsureCreated build the schema
+>    ```
+>
+>    (On the free serverless tier the first connection may return "database is not currently
+>    available" while it resumes from auto-pause — wait ~30–60s and retry.)
+>
+> **SQL-auth alternative.** If you'd rather use a login/password, copy the ADO.NET string from
+> the portal (SQL **database → Connection strings → ADO.NET**) and replace `{your_password}`;
+> it then contains a secret, so keep it only in app settings or Key Vault, never in the repo.
+>
+> **No Azure SQL at all?** Omit both settings and use
+> `ConnectionStrings__DefaultConnection="Data Source=/home/todoapp.db"` — `/home` is App
+> Service's persistent storage, so the SQLite file survives restarts (single instance only).
 
 Publish and deploy:
 
@@ -249,7 +289,8 @@ runtime.
 |---------|-----------|-------|
 | JWT signing key | user-secret `Jwt:Key` | App setting `Jwt__Key` (or Key Vault ref) |
 | Google client ID (API) | user-secret `Authentication:Google:ClientId` | App setting `Authentication__Google__ClientId` |
-| DB connection | user-secret / default SQLite | App setting `ConnectionStrings__DefaultConnection` |
+| DB provider | (unset → SQLite) | App setting `Database__Provider=SqlServer` |
+| DB connection | user-secret / default SQLite | App setting `ConnectionStrings__DefaultConnection` (passwordless: `Authentication=Active Directory Default`) |
 | Allowed CORS origins | n/a (dev proxy) | App setting `Cors__AllowedOrigins__0` = SPA URL |
 | API base URL (SPA) | `frontend/.env` `VITE_API_URL` (empty) | build-time `VITE_API_URL` = API URL |
 | Google client ID (SPA) | `frontend/.env` `VITE_GOOGLE_CLIENT_ID` | build-time `VITE_GOOGLE_CLIENT_ID` |

@@ -121,7 +121,7 @@ user and issues our own tokens — so the JWT + revocation model is unchanged. A
 user with no local password can't use password login; if their Google email matches an
 existing account, the two are linked.
 
-To enable it:
+To enable it, quick version:
 
 1. In the [Google Cloud console](https://console.cloud.google.com/apis/credentials),
    create an **OAuth 2.0 Client ID** of type **Web application**.
@@ -129,10 +129,13 @@ To enable it:
 3. Put the resulting client ID in **both** places (they must match):
    - Backend: `Authentication:Google:ClientId` (env var `Authentication__Google__ClientId`
      or user-secrets).
-   - Frontend: `VITE_GOOGLE_CLIENT_ID` in `frontend/.env`.
+   - Frontend: `VITE_GOOGLE_CLIENT_ID` in `frontend/.env.local`.
 
 If the client ID is left blank, the Google button is simply hidden and email/password
 auth works as normal.
+
+📄 **Full step-by-step (project, consent screen, credentials, no-secrets notes, and
+troubleshooting): [GOOGLE_SIGNIN.md](GOOGLE_SIGNIN.md).**
 
 ## Run the frontend
 
