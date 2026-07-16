@@ -22,10 +22,14 @@ export default function GoogleButton({ onCredential }) {
         client_id: CLIENT_ID,
         callback: (response) => callbackRef.current?.(response.credential),
       });
+      // Fit the button to its container (Google requires a pixel width, 200–400),
+      // so it doesn't clip on narrow phone screens.
+      const available = containerRef.current.offsetWidth || 320;
+      const width = Math.max(240, Math.min(400, available));
       window.google.accounts.id.renderButton(containerRef.current, {
         theme: 'outline',
         size: 'large',
-        width: 320,
+        width,
         text: 'continue_with',
       });
     }
