@@ -69,6 +69,13 @@ testable via a `FakeDateTimeProvider`.
 > samples. For a step-by-step **Azure** deploy (App Service + Static Web Apps), **Google
 > sign-in** setup, and **secrets/user-secrets** management, see **[AZURE.md](AZURE.md)**.
 
+## Documentation
+
+- **[DEPLOYMENT.md](DEPLOYMENT.md)** — build, compile, and deploy (Docker Compose, Linux + nginx, Azure), with the included Dockerfiles and compose samples.
+- **[AZURE.md](AZURE.md)** — step-by-step Azure deploy (App Service + Static Web Apps), passwordless database via managed identity, Google sign-in, and secrets / Key Vault.
+- **[GOOGLE_SIGNIN.md](GOOGLE_SIGNIN.md)** — end-to-end Google sign-in setup: Cloud project, consent screen, OAuth client, wiring the client ID into the frontend and backend, and troubleshooting.
+- **[LESSONS.md](LESSONS.md)** — real-world gotchas hit building and shipping this (SQLite vs Azure SQL, serverless cold starts, deployment, hostnames, CI/CD, config & secrets).
+
 ## Prerequisites
 
 - .NET 10 SDK (or Visual Studio 2026)
