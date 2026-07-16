@@ -116,7 +116,11 @@ input:focus, select:focus { border-color: var(--primary); }
   gap: 16px;
   align-items: start;
 }
-@media (max-width: 780px) { .board { grid-template-columns: 1fr; } }
+/* Tablet / narrow: lanes stack into a single column. */
+@media (max-width: 780px) {
+  .board { grid-template-columns: 1fr; gap: 12px; }
+  .app { padding: 28px 16px 64px; }
+}
 
 .lane {
   background: var(--bg);
@@ -236,3 +240,41 @@ input:focus, select:focus { border-color: var(--primary); }
 
 .gbtn { display: inline-flex; align-items: center; justify-content: center; gap: 10px; width: 320px; height: 40px;
   background: #fff; color: #1f1f1f; border: 1px solid #747775; border-radius: 8px; font-size: 0.9rem; font-weight: 500; cursor: pointer; }
+
+/* ---- Responsive: phones (portrait) ---- */
+@media (max-width: 560px) {
+  .app { padding: 16px 12px 56px; }
+
+  /* Inputs need >= 16px or iOS Safari auto-zooms the page when you focus a field. */
+  input[type='text'],
+  input[type='search'],
+  input[type='date'],
+  input[type='email'],
+  input[type='password'],
+  select { font-size: 16px; }
+
+  .app__header h1 { font-size: 1.9rem; }
+
+  /* Signed-in header: let the title and account buttons wrap instead of overflowing. */
+  .app__header--row { flex-wrap: wrap; }
+  .app__header--row h1 { font-size: 1.35rem; }
+  .app__account { width: 100%; justify-content: flex-end; }
+
+  /* Add-task form: description takes its own row; meta controls fill the width. */
+  .todo-form__desc { min-width: 100%; }
+  .todo-form__row--meta > select,
+  .todo-form__row--meta > input[type='date'] { flex: 1 1 44%; }
+
+  /* Filter row wraps cleanly. */
+  .board-filter { flex-wrap: wrap; }
+
+  /* Bigger, finger-friendly tap targets for the card edit/delete icons. */
+  .note__icon { padding: 6px 9px; font-size: 1rem; }
+
+  /* Category manager rows stay usable on narrow screens. */
+  .cat-manager__add { flex-wrap: wrap; }
+
+  /* Auth screen: sit higher, more breathing room, and never clip the Google button. */
+  .auth { align-items: flex-start; padding: 8vh 16px 24px; }
+  .auth__google { width: 100%; }
+}
