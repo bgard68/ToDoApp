@@ -57,6 +57,15 @@ Application layer defines interfaces (`IApplicationDbContext`, `IJwtTokenService
 `IPasswordHasher`, `ICurrentUserService`, `IDateTimeProvider`) that Infrastructure
 implements, so the core has no direct dependency on EF Core or ASP.NET.
 
+The layering as an onion — the Domain sits at the core, each layer wraps the one inside it,
+and every dependency points inward:
+
+![TaskBoard onion architecture](docs/architecture.svg)
+
+Solid arrows are the request/data flow; the dashed arrow is **dependency inversion** — the
+Application defines `IApplicationDbContext`, and Infrastructure implements it, which is why
+the same handlers run unchanged on SQLite locally and Azure SQL in production.
+
 The system clock is abstracted behind **`IDateTimeProvider`** (production
 implementation `DateTimeProvider` returns `DateTimeOffset.UtcNow`). Handlers inject it
 and pass the timestamp into domain operations, so entities never read the ambient clock
