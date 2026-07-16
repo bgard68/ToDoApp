@@ -6,6 +6,7 @@ publish/
 # Visual Studio publish profiles — can contain the App Service name and deploy credentials.
 *.pubxml
 *.pubxml.user
+*.zip
 PublishProfiles/
 *.suo
 *.rsuser
