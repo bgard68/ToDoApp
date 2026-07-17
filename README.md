@@ -84,6 +84,7 @@ testable via a `FakeDateTimeProvider`.
 - **[AZURE.md](AZURE.md)** — step-by-step Azure deploy (App Service + Static Web Apps), passwordless database via managed identity, Google sign-in, and secrets / Key Vault.
 - **[GOOGLE_SIGNIN.md](GOOGLE_SIGNIN.md)** — end-to-end Google sign-in setup: Cloud project, consent screen, OAuth client, wiring the client ID into the frontend and backend, and troubleshooting.
 - **[LESSONS.md](LESSONS.md)** — real-world gotchas hit building and shipping this (SQLite vs Azure SQL, serverless cold starts, deployment, hostnames, CI/CD, config & secrets).
+- **[DATABASE_PORTABILITY.md](DATABASE_PORTABILITY.md)** - Guide to database portability and switching between SQL and NoSQL engines.
 
 ## Prerequisites
 
