@@ -1,3 +1,4 @@
+using Azure.Identity;
 using Microsoft.OpenApi.Models;
 using TodoApp.Application;
 using TodoApp.Application.Common.Interfaces;
@@ -8,6 +9,22 @@ using TodoApp.WebApi.Authentication;
 using TodoApp.WebApi.Endpoints;
 
 var builder = WebApplication.CreateBuilder(args);
+
+// Optional Azure Key Vault configuration source.
+// Opt in ONLY when a vault URI is configured. When KeyVault:Uri is unset (local dev, CI, tests,
+// or any environment without a vault), this block is skipped entirely — no Azure call, no
+// credential lookup, no startup delay — and configuration falls back to user-secrets / env vars /
+// appsettings exactly as before. When it IS set (an app setting in Azure), the vault is added last
+// so its secrets override the earlier providers, and Jwt:Key resolves from the vault automatically.
+// No consuming code changes: AuthenticationSetup still just reads Jwt:Key, and its fail-fast guard
+// catches the case where neither the vault nor any other source supplies the key.
+var keyVaultUri = builder.Configuration["KeyVault:Uri"];
+if (!string.IsNullOrWhiteSpace(keyVaultUri))
+{
+    builder.Configuration.AddAzureKeyVault(
+        new Uri(keyVaultUri),
+        new DefaultAzureCredential());
+}
 
 const string CorsPolicy = "FrontendPolicy";
 
