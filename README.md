@@ -84,7 +84,8 @@ testable via a `FakeDateTimeProvider`.
 - **[AZURE.md](AZURE.md)** — step-by-step Azure deploy (App Service + Static Web Apps), passwordless database via managed identity, Google sign-in, and secrets / Key Vault.
 - **[GOOGLE_SIGNIN.md](GOOGLE_SIGNIN.md)** — end-to-end Google sign-in setup: Cloud project, consent screen, OAuth client, wiring the client ID into the frontend and backend, and troubleshooting.
 - **[LESSONS.md](LESSONS.md)** — real-world gotchas hit building and shipping this (SQLite vs Azure SQL, serverless cold starts, deployment, hostnames, CI/CD, config & secrets).
-- **[DATABASE_PORTABILITY.md](DATABASE_PORTABILITY.md)** - Guide to database portability and switching between SQL and NoSQL engines.
+- **[DATABASE_PORTABILITY.md](DATABASE_PORTABILITY.md)** — keeping behavior identical across relational providers (SQLite / SQL Server / PostgreSQL): the provider switch, collation & cascade gotchas, multi-provider CI, and what a non-relational port (Cosmos / MongoDB / DynamoDB) would actually take.
+- **[KEY_VAULT.md](KEY_VAULT.md)** — what this project stores in Azure Key Vault (just the JWT signing key — passwordless DB and a public client id mean nothing else), the two ways to wire it in, and RBAC vs. access-policy access.
 
 ## Prerequisites
 
@@ -128,6 +129,12 @@ export Jwt__Key="<a-long-random-secret>"
 
 The integration tests inject their own throwaway key via an environment variable, so
 `dotnet test` needs no setup.
+
+> **Using Azure Key Vault?** The JWT signing key is the one real secret this project has —
+> the database is passwordless (managed identity) and the Google client id is public, so
+> nothing else needs a vault. For what to store, the exact code changes, how it stays optional
+> so the app still runs locally without a vault, and how to verify it, see
+> **[KEY_VAULT.md](KEY_VAULT.md)**.
 
 ### Google sign-in (optional)
 
