@@ -4,7 +4,7 @@ End-to-end guide for deploying the **.NET API** to Azure App Service and the **R
 to Azure Static Web Apps, wiring up **Google sign-in**, and managing **secrets / user-secrets**
 (local dev, Azure app settings, and Key Vault).
 
-For non-Azure targets (Docker, Linux + nginx) see [DEPLOYMENT.md](DEPLOYMENT.md).
+For non-Azure targets (Docker, Linux + nginx) see [DEPLOYMENT.md](deployment.md).
 
 - [Architecture on Azure](#architecture-on-azure)
 - [0. Prerequisites](#0-prerequisites)
@@ -260,8 +260,16 @@ Then in the Google console (step 2) add `$SWA_URL` to **Authorized JavaScript or
 
 ## 6. Production secrets with Key Vault (recommended)
 
-Instead of putting `Jwt__Key` directly in app settings, store it in Key Vault and reference it,
-so the secret never appears in configuration listings.
+The JWT signing key is the **only** real secret this project has — the database is passwordless
+(managed identity) and the Google client id is public — so Key Vault holds exactly one value. Use a
+**Vault (Standard tier)**, not Managed HSM (Managed HSM stores keys, not secrets).
+
+There are two ways to wire it in. **This repo ships the config-provider approach (Option B).** For the
+full treatment — what to store, the exact source diff, the step-by-step **portal walkthrough**, keeping
+it optional so the app still runs locally with no vault, and how to verify — see **[KEY_VAULT.md](key-vault.md)**.
+
+**Option A — app-setting reference (no code):** App Service resolves a `@Microsoft.KeyVault(...)` token
+at runtime; the app reads `Jwt:Key` unchanged.
 
 ```bash
 KV=todoapp-kv-$RANDOM
@@ -278,8 +286,26 @@ az webapp config appsettings set -g $RG -n $API_APP --settings \
   Jwt__Key="@Microsoft.KeyVault(SecretUri=https://$KV.vault.azure.net/secrets/JwtKey/)"
 ```
 
-The app reads `Jwt:Key` exactly as before — App Service resolves the Key Vault reference at
-runtime.
+**Option B — configuration provider (what this repo does):** the code registers Key Vault only when
+`KeyVault__Uri` is set, so nothing changes locally. Store the secret as `Jwt--Key`, grant the identity
+the **Key Vault Secrets User** role (RBAC), and set one app setting instead of the reference:
+
+```bash
+az keyvault create -g $RG -n $KV -l $LOCATION --enable-rbac-authorization true
+az keyvault secret set --vault-name $KV -n "Jwt--Key" --value "$(openssl rand -base64 48)"
+
+PRINCIPAL_ID=$(az webapp identity show -g $RG -n $API_APP --query principalId -o tsv)
+az role assignment create --assignee $PRINCIPAL_ID \
+  --role "Key Vault Secrets User" --scope $(az keyvault show -n $KV --query id -o tsv)
+
+# Activate the vault (and remove the old plaintext key setting)
+az webapp config appsettings set -g $RG -n $API_APP --settings \
+  KeyVault__Uri="https://$KV.vault.azure.net/"
+az webapp config appsettings delete -g $RG -n $API_APP --setting-names Jwt__Key
+```
+
+Either way the app reads `Jwt:Key` exactly as before, and it still **fails fast** at startup if no
+source supplies the key.
 
 ---
 
@@ -287,7 +313,8 @@ runtime.
 
 | Purpose | Local dev | Azure |
 |---------|-----------|-------|
-| JWT signing key | user-secret `Jwt:Key` | App setting `Jwt__Key` (or Key Vault ref) |
+| JWT signing key | user-secret `Jwt:Key` | App setting `Jwt__Key`, or (Option A) a Key Vault ref, or (Option B) removed in favor of `Jwt--Key` in the vault |
+| Key Vault URI (Option B) | (unset → no vault) | App setting `KeyVault__Uri=https://<vault>.vault.azure.net/` — activates the vault config source |
 | Google client ID (API) | user-secret `Authentication:Google:ClientId` | App setting `Authentication__Google__ClientId` |
 | DB provider | (unset → SQLite) | App setting `Database__Provider=SqlServer` |
 | DB connection | user-secret / default SQLite | App setting `ConnectionStrings__DefaultConnection` (passwordless: `Authentication=Active Directory Default`) |

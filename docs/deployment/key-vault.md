@@ -1,10 +1,10 @@
 # Azure Key Vault
 
 What this project stores in Key Vault, why the list is so short, and the two ways to wire it in.
-Companion to [AZURE.md](AZURE.md), which includes a copy-paste Key Vault step as part of the full
+Companion to [AZURE.md](azure.md), which includes a copy-paste Key Vault step as part of the full
 deploy.
 
-> **← Back to the main [README](README.md).**
+> **← Back to the main [README](../../README.md).**
 
 ---
 
@@ -47,9 +47,35 @@ it reaches Azure SQL passwordless. Key Vault reuses that *same* identity, so:
 
 ---
 
+## Choosing the offering: Vaults vs. Managed HSM (and which tier)
+
+When you create the resource, Azure offers **Vaults** and **Managed HSM**. For this project the
+answer is **Vaults, Standard tier** — and it isn't close:
+
+- **Managed HSM stores cryptographic *keys* only — not secrets or certificates.** The JWT signing key
+  is a *secret* (an arbitrary string), and the whole integration registers Key Vault as a *secrets*
+  configuration source. Managed HSM literally can't hold it in that form, so it's not even a valid
+  choice here.
+- **Managed HSM is a single-tenant, dedicated FIPS 140-3 Level 3 appliance** that bills ~$1,000+/month
+  (per-hour, no free tier). It exists for strict key-sovereignty / regulatory mandates and large
+  volumes of high-value keys — enormous overkill for one signing secret.
+
+On a **Vault's** own two tiers:
+
+- **Standard** — software-protected; stores secrets/keys/certificates; effectively free at this usage
+  (a few cents per 10,000 operations, no monthly base). **← pick this.**
+- **Premium** — adds HSM-*backed* keys for cryptographic *key* operations. It does nothing for *secret*
+  storage, so it doesn't apply here. Premium would only become relevant if you later hardware-protect a
+  Data Protection *encryption key* (the 2FA-at-rest scenario above).
+
+> Azure pricing and tier names shift over time — confirm current numbers on the Key Vault pricing page
+> if the cost matters — but the deciding fact is stable: **Managed HSM = keys only, no secrets.**
+
+---
+
 ## Two ways to wire it in
 
-Both are valid; the project's [AZURE.md](AZURE.md) uses **Option A**. Option B is the more "12-factor"
+Both are valid; the project's [AZURE.md](azure.md) uses **Option A**. Option B is the more "12-factor"
 code-based approach and is what you'd reach for if you want the app to pull *many* secrets or run
 identically across clouds.
 
@@ -114,6 +140,62 @@ cares where the value came from.
 **Pros:** wiring lives in code and version control; adding more secrets is free (no per-secret app
 setting). **Cons:** two packages and one line of startup code.
 
+> **This project ships Option B.** `Program.cs` contains the gated `AddAzureKeyVault` block, and
+> `TodoApp.WebApi.csproj` references the two packages. See
+> [Source code changes](#source-code-changes-already-applied) below for the exact diff.
+
+---
+
+## Portal setup walkthrough (step by step)
+
+For doing it by hand in the Azure Portal on an already-deployed app. You reuse the App Service's
+existing managed identity (from the passwordless SQL setup), so there's no new credential. Names below
+match this project's deploy — substitute your own.
+
+**1. Create the Vault.** *Create a resource → Key Vault → Create.*
+- Same **subscription**, **resource group**, and **region** as the App Service (`taskboard-05-api`).
+- Name it, e.g. `taskboard-kv`.
+- **Tier: Standard.** On **Access configuration**, choose **Azure role-based access control (RBAC)**
+  (matches how SQL access already works).
+- Create.
+
+**2. Give *yourself* permission to add secrets.** Under RBAC, being the vault's *Contributor* does
+**not** grant data-plane access to secret values — a common gotcha. On the vault:
+*Access control (IAM) → Add → Add role assignment → **Key Vault Secrets Officer** → Members: your own
+user → Review + assign.*
+
+**3. Grant the App Service's managed identity read access.** Still on *Access control (IAM) → Add role
+assignment → **Key Vault Secrets User** (read-only) → Members → Managed identity → select
+`taskboard-05-api` → Review + assign.* (If it shows no identity, enable it at *App Service → Settings →
+Identity → System assigned → On* — but it should already be on from SQL.)
+
+**4. Add the JWT signing key as a secret.** *Objects → Secrets → Generate/Import.*
+- **Name:** `Jwt--Key` (double dash → the config key `Jwt:Key`).
+- **Value:** a long random string (≥ 32 bytes) — e.g. paste the output of `openssl rand -base64 48`.
+- Create.
+
+**5. Point the App Service at the vault.** *App Service `taskboard-05-api` → Settings → Environment
+variables* (older portal: *Configuration → Application settings*):
+- **New application setting:** `KeyVault__Uri` = the vault's URI from its Overview page
+  (`https://taskboard-kv.vault.azure.net/`).
+- **Delete** the existing `Jwt__Key` app setting — the vault now supplies it.
+- **Apply / Save** (this restarts the app).
+
+**6. Verify.**
+- *App Service → Log stream:* confirm a clean startup (if the identity can't read the secret,
+  `AuthenticationSetup` fails fast and the exception shows here).
+- Log into the live site and confirm sign-in + board load — a working login proves the vault-sourced
+  key both signed and validated the token.
+- *(Optional negative test)* remove the identity's role assignment, restart, confirm the app refuses to
+  start — proof it genuinely depends on the vault.
+
+> **Redeploy first.** The app must already be running the updated build (the `KeyVault__Uri` gate) for
+> step 5 to take effect. If you delete `Jwt__Key` before deploying the new code, the old build has no
+> key and fails fast. Deploy the new build, *then* do steps 5–6.
+
+The equivalent CLI is the RBAC snippet under [Access model](#access-model-rbac-vs-access-policy) plus
+the Option B secret/app-setting commands above.
+
 ---
 
 ## How this changes the existing App Service settings
@@ -148,6 +230,57 @@ Two things about how they coexist:
 > **Option A note:** with the app-setting *reference* approach you instead **keep** `Jwt__Key` and
 > change its *value* to `@Microsoft.KeyVault(SecretUri=…)`, and you do **not** add `KeyVault__Uri`.
 > Same end state, different mechanism — pick one, not both.
+
+---
+
+## Source code changes (already applied)
+
+Option B is implemented in the repo. Three files change; no consumer code does.
+
+**1. `src/TodoApp.WebApi/TodoApp.WebApi.csproj`** — two packages:
+
+```xml
+<PackageReference Include="Azure.Identity" Version="1.*" />
+<PackageReference Include="Azure.Extensions.AspNetCore.Configuration.Secrets" Version="1.*" />
+```
+
+**2. `src/TodoApp.WebApi/Program.cs`** — one `using` plus a gated block right after the builder is
+created:
+
+```csharp
+using Azure.Identity;
+// ...
+var builder = WebApplication.CreateBuilder(args);
+
+// Optional Azure Key Vault configuration source. Skipped entirely when KeyVault:Uri is unset
+// (local dev, CI, tests) — no Azure call, no credential lookup — so config falls back to
+// user-secrets / env vars / appsettings. When set (an app setting in Azure), the vault is added
+// last so its secrets override earlier providers and Jwt:Key resolves from it automatically.
+var keyVaultUri = builder.Configuration["KeyVault:Uri"];
+if (!string.IsNullOrWhiteSpace(keyVaultUri))
+{
+    builder.Configuration.AddAzureKeyVault(
+        new Uri(keyVaultUri),
+        new DefaultAzureCredential());
+}
+```
+
+`AddAzureKeyVault` resolves through the ASP.NET Core implicit usings
+(`Microsoft.Extensions.Configuration`), so the only new `using` is `Azure.Identity` for
+`DefaultAzureCredential`.
+
+**3. `src/TodoApp.WebApi/appsettings.json`** — an empty placeholder so the knob is discoverable
+(empty string → provider skipped, so it stays off locally):
+
+```jsonc
+"KeyVault": {
+  "Uri": ""
+}
+```
+
+**Unchanged on purpose:** `AuthenticationSetup.cs` and every other consumer still just read `Jwt:Key`.
+Registering Key Vault as a *configuration source* (not a service) means no consumer knows or cares
+where the value comes from, and the existing fail-fast on an empty `Jwt:Key` still guards every path.
 
 ---
 
@@ -300,4 +433,4 @@ the secret is set.
 
 ---
 
-> **← Back to the main [README](README.md).**
+> **← Back to the main [README](../../README.md).**

@@ -1,6 +1,6 @@
 # Lessons Learned — Shipping TaskBoard to Azure
 
-_[← Back to the main README](README.md)_
+_[← Back to the main README](../README.md)_
 
 A running list of the real-world gotchas hit while building this .NET 10 + React app and
 deploying it end to end (App Service + Azure SQL + Static Web Apps with CI/CD). Kept as a
@@ -47,8 +47,3 @@ reference for future deployments — most of these cost more time than the code 
 - `RandomNumberGenerator.GetBytes(int)` doesn't exist in Windows PowerShell 5.1 → use `Create().GetBytes($bytes)`.
 - Visual Studio publish profiles (`*.pubxml`) can leak your App Service name → add them to `.gitignore`.
 - Google sign-in: the client ID is public (no secret), must match on frontend and backend, and the site's origin must be added to Google's Authorized JavaScript origins.
-- Google `origin_mismatch` (Error 400): the site's **exact** origin must be listed in the OAuth client's Authorized JavaScript origins — scheme + host only, no trailing 
-  slash, `https://` for the live site and `http://localhost:5173` for dev; changes can take a few minutes to propagate.
-- The app uses Google Identity Services' **ID-token** flow (not the OAuth implicit grant), so the "implicit grant is insecure — use Authorization Code + PKCE" warning doesn't
-  apply; the backend verifies the signed ID token server-side, no access token or PKCE exchange involved.
-

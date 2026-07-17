@@ -1,6 +1,6 @@
 # Google Sign-In Setup
 
-_[← Back to the main README](README.md)_
+_[← Back to the main README](../../README.md)_
 
 This guide walks through enabling **Sign in with Google** for TaskBoard from scratch —
 creating the Google Cloud project, configuring the consent screen, generating an OAuth
@@ -118,4 +118,4 @@ and clicking it completes the round trip.
 
 ---
 
-_[← Back to the main README](README.md)_
+_[← Back to the main README](../../README.md)_

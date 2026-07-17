@@ -34,8 +34,8 @@ is a React (Vite) single-page app.
 - **Secrets done right** — nothing sensitive in source; the signing key comes from
   user-secrets (dev) or environment/Key Vault (prod), and the app fails fast without it.
 - **Deployable** — Docker Compose, Linux + nginx, and Azure (App Service + Static Web Apps)
-  guides, with runnable Dockerfiles and compose files. See
-  [DEPLOYMENT.md](DEPLOYMENT.md) and [AZURE.md](AZURE.md).
+  guides, with runnable Dockerfiles and compose files. See the
+  [deployment guide](docs/deployment/deployment.md) and [Azure guide](docs/deployment/azure.md).
 
 **Tech:** .NET 10, ASP.NET Core Minimal APIs, EF Core, MediatR, FluentValidation, JWT,
 React 18 + Vite, xUnit, Docker.
@@ -60,7 +60,7 @@ implements, so the core has no direct dependency on EF Core or ASP.NET.
 The layering as an onion — the Domain sits at the core, each layer wraps the one inside it,
 and every dependency points inward:
 
-![TaskBoard onion architecture](docs/architecture.svg)
+![TaskBoard onion architecture](docs/architecture/onion-architecture.svg)
 
 Solid arrows are the request/data flow; the dashed arrow is **dependency inversion** — the
 Application defines `IApplicationDbContext`, and Infrastructure implements it, which is why
@@ -72,20 +72,33 @@ and pass the timestamp into domain operations, so entities never read the ambien
 — which keeps time-dependent behavior (token expiry, audit stamps) deterministic and
 testable via a `FakeDateTimeProvider`.
 
-> **Deploying?** See **[DEPLOYMENT.md](DEPLOYMENT.md)** for full setup, build/compile,
+> **Deploying?** See the **[deployment guide](docs/deployment/deployment.md)** for full setup, build/compile,
 > and deployment instructions (Docker Compose, Linux + nginx, and Azure), plus the
 > included `Dockerfile.api`, `frontend/Dockerfile`, `docker-compose.yml`, and `deploy/`
 > samples. For a step-by-step **Azure** deploy (App Service + Static Web Apps), **Google
-> sign-in** setup, and **secrets/user-secrets** management, see **[AZURE.md](AZURE.md)**.
+> sign-in** setup, and **secrets/user-secrets** management, see the **[Azure setup runbook](docs/deployment/azure-setup.md)**.
 
 ## Documentation
 
-- **[DEPLOYMENT.md](DEPLOYMENT.md)** — build, compile, and deploy (Docker Compose, Linux + nginx, Azure), with the included Dockerfiles and compose samples.
-- **[AZURE.md](AZURE.md)** — step-by-step Azure deploy (App Service + Static Web Apps), passwordless database via managed identity, Google sign-in, and secrets / Key Vault.
-- **[GOOGLE_SIGNIN.md](GOOGLE_SIGNIN.md)** — end-to-end Google sign-in setup: Cloud project, consent screen, OAuth client, wiring the client ID into the frontend and backend, and troubleshooting.
-- **[LESSONS.md](LESSONS.md)** — real-world gotchas hit building and shipping this (SQLite vs Azure SQL, serverless cold starts, deployment, hostnames, CI/CD, config & secrets).
-- **[DATABASE_PORTABILITY.md](DATABASE_PORTABILITY.md)** — keeping behavior identical across relational providers (SQLite / SQL Server / PostgreSQL): the provider switch, collation & cascade gotchas, multi-provider CI, and what a non-relational port (Cosmos / MongoDB / DynamoDB) would actually take.
-- **[KEY_VAULT.md](KEY_VAULT.md)** — what this project stores in Azure Key Vault (just the JWT signing key — passwordless DB and a public client id mean nothing else), the two ways to wire it in, and RBAC vs. access-policy access.
+All guides live under [`docs/`](docs/), grouped by topic. New to the project? Start with the
+**Azure setup runbook**.
+
+**Deployment & operations** — [`docs/deployment/`](docs/deployment/)
+
+- **[Azure setup runbook](docs/deployment/azure-setup.md)** — **start-to-finish Azure guide**: one ordered pass from an empty subscription to a fully working deployment (App Service, passwordless Azure SQL, Static Web Apps, Google sign-in, CORS, Key Vault). Start here for a fresh setup.
+- **[Azure reference](docs/deployment/azure.md)** — the detailed Azure deploy reference (App Service + Static Web Apps), passwordless database via managed identity, Google sign-in, and secrets / Key Vault.
+- **[Deployment guide](docs/deployment/deployment.md)** — build, compile, and deploy anywhere (Docker Compose, Linux + nginx, Azure), with the included Dockerfiles and compose samples.
+- **[Google sign-in](docs/deployment/google-signin.md)** — end-to-end Google sign-in setup: Cloud project, consent screen, OAuth client, wiring the client ID into the frontend and backend, and troubleshooting.
+- **[Key Vault](docs/deployment/key-vault.md)** — what this project stores in Azure Key Vault (just the JWT signing key — passwordless DB and a public client id mean nothing else), the two ways to wire it in, RBAC vs. access-policy, and how it stays optional locally.
+
+**Architecture & design** — [`docs/architecture/`](docs/architecture/)
+
+- **[Database portability](docs/architecture/database-portability.md)** — keeping behavior identical across relational providers (SQLite / SQL Server / PostgreSQL): the provider switch, collation & cascade gotchas, multi-provider CI, and what a non-relational port (Cosmos / MongoDB / DynamoDB) would actually take.
+- **[Onion architecture diagram](docs/architecture/onion-architecture.svg)** — the layered dependency diagram used above.
+
+**Reference**
+
+- **[Lessons learned](docs/lessons.md)** — real-world gotchas hit building and shipping this (SQLite vs Azure SQL, serverless cold starts, deployment, hostnames, CI/CD, config & secrets).
 
 ## Prerequisites
 
@@ -134,7 +147,7 @@ The integration tests inject their own throwaway key via an environment variable
 > the database is passwordless (managed identity) and the Google client id is public, so
 > nothing else needs a vault. For what to store, the exact code changes, how it stays optional
 > so the app still runs locally without a vault, and how to verify it, see
-> **[KEY_VAULT.md](KEY_VAULT.md)**.
+> **[KEY_VAULT.md](docs/deployment/key-vault.md)**.
 
 ### Google sign-in (optional)
 
@@ -159,7 +172,7 @@ If the client ID is left blank, the Google button is simply hidden and email/pas
 auth works as normal.
 
 📄 **Full step-by-step (project, consent screen, credentials, no-secrets notes, and
-troubleshooting): [GOOGLE_SIGNIN.md](GOOGLE_SIGNIN.md).**
+troubleshooting): [GOOGLE_SIGNIN.md](docs/deployment/google-signin.md).**
 
 ## Run the frontend
 
