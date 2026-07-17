@@ -1,10 +1,10 @@
 # Database Portability
 
 How this project stays behavior-consistent across relational database providers — and
-what it would take to support "any" database. Companion to [LESSONS.md](LESSONS.md),
+what it would take to support "any" database. Companion to [LESSONS.md](../lessons.md),
 which lists the specific gotchas hit in production.
 
-> **← Back to the main [README](README.md).**
+> **← Back to the main [README](../../README.md).**
 
 ---
 
@@ -217,4 +217,4 @@ have to be re-implemented in application code. The Clean Architecture boundaries
 
 ---
 
-> **← Back to the main [README](README.md).**
+> **← Back to the main [README](../../README.md).**

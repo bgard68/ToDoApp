@@ -1,7 +1,7 @@
 # Setup, Build & Deployment Guide
 
 This guide covers everything from a clean checkout to a running production deployment.
-For a feature overview and the API reference, see [README.md](README.md).
+For a feature overview and the API reference, see [README.md](../../README.md).
 
 - [1. Prerequisites](#1-prerequisites)
 - [2. First-time setup](#2-first-time-setup)
@@ -209,7 +209,7 @@ published `--self-contained`.
 ## 9. Deploy — Azure App Service
 
 A full, step-by-step Azure walkthrough — API on **App Service**, React on **Static Web
-Apps**, plus **Google sign-in** and **Key Vault** secrets — lives in **[AZURE.md](AZURE.md)**.
+Apps**, plus **Google sign-in** and **Key Vault** secrets — lives in **[AZURE.md](azure.md)**.
 The short version:
 
 ```bash
