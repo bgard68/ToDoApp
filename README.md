@@ -149,6 +149,89 @@ The integration tests inject their own throwaway key via an environment variable
 > so the app still runs locally without a vault, and how to verify it, see
 > **[KEY_VAULT.md](docs/deployment/key-vault.md)**.
 
+### Test the API locally
+
+Protected endpoints require a JWT. The flow is always: **log in → get an access token → send it
+as `Authorization: Bearer <token>`.** Three ways to do it:
+
+**Swagger UI** (easiest — `http://localhost:5080/swagger`):
+
+1. Expand **POST `/api/auth/login`** → **Try it out**, send the demo credentials:
+
+   ```json
+   { "email": "demo@todoapp.local", "password": "Password123!" }
+   ```
+
+   Execute, then copy the `accessToken` value from the response.
+2. Click **Authorize** (top-right padlock) and paste **only the raw token — no `Bearer ` prefix**
+   (this scheme adds it for you). Authorize → Close.
+3. Call any protected endpoint, e.g. **GET `/api/categories`** → **Try it out** → **Execute** → 200.
+
+**curl / bash:**
+
+```bash
+TOKEN=$(curl -s -X POST http://localhost:5080/api/auth/login \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"demo@todoapp.local","password":"Password123!"}' | jq -r .accessToken)
+curl -s http://localhost:5080/api/categories -H "Authorization: Bearer $TOKEN"
+```
+
+**PowerShell** (Windows — put each statement on its own line, no backtick continuations):
+
+```powershell
+$base = "http://localhost:5080"
+$body = '{"email":"demo@todoapp.local","password":"Password123!"}'
+$login = Invoke-RestMethod -Uri "$base/api/auth/login" -Method Post -ContentType "application/json" -Body $body
+$token = $login.accessToken
+Invoke-RestMethod -Uri "$base/api/categories" -Headers @{ Authorization = "Bearer $token" }
+```
+
+Gotchas worth knowing:
+
+- **Use a fresh token each session.** Reusing a token minted by an earlier run (whose signing key
+  differed) fails with `401 … "The signature key was not found"` — that's a key mismatch, not a bug.
+  Always log in against the same running instance you're calling.
+- **Swagger Authorize takes the raw token**, not `Bearer <token>` — double-prefixing gives a 401.
+- **Access tokens last 15 minutes.** After that, protected calls 401; log in again for a new one.
+- **PowerShell:** don't paste multi-line commands that use backtick (`` ` ``) continuations — pasting
+  splits them and the request loses its body (a 415 Unsupported Media Type). Keep each call on one line.
+
+For the automated tests instead, `dotnet test` runs the unit and integration suites with no setup
+(they inject their own signing key).
+
+#### Troubleshooting `401 … "The signature key was not found"`
+
+This means the token was signed with a different key than the running app validates with. Usual
+causes: a stale/cross-instance token, or an environment variable overriding your user-secret (env
+vars win over user-secrets in ASP.NET Core config). Diagnose on **Windows PowerShell**:
+
+```powershell
+# 1) Is a Jwt__Key env var set in any scope? (blank = not set = good)
+$env:Jwt__Key
+[Environment]::GetEnvironmentVariable('Jwt__Key','User')
+[Environment]::GetEnvironmentVariable('Jwt__Key','Machine')
+
+# 2) What key is actually stored for the project?
+dotnet user-secrets list --project .\src\TodoApp.WebApi
+```
+
+If any of the env-var checks print a value, it's overriding your user-secret — clear it and restart
+the app so signing and validation use the same key:
+
+```powershell
+Remove-Item Env:\Jwt__Key -ErrorAction SilentlyContinue          # current session
+[Environment]::SetEnvironmentVariable('Jwt__Key', $null, 'User') # persistent User scope, if set
+```
+
+If `user-secrets list` shows no `Jwt:Key`, set one (it persists across restarts, so tokens stay
+valid):
+
+```powershell
+dotnet user-secrets set "Jwt:Key" ([Convert]::ToBase64String((1..48 | ForEach-Object { Get-Random -Max 256 }))) --project .\src\TodoApp.WebApi
+```
+
+Then get a **fresh** token and retry — old tokens minted before the fix won't validate.
+
 ### Google sign-in (optional)
 
 Users can sign in with Google. The client uses Google Identity Services to obtain a

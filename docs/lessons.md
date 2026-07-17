@@ -44,6 +44,18 @@ reference for future deployments — most of these cost more time than the code 
 - The connection string uses `Authentication=Active Directory Default` — no user ID or password stored anywhere.
 - Nested config keys become env vars with **double underscores** (`Cors__AllowedOrigins__0`, `Authentication__Google__ClientId`).
 - The JWT signing key must be present or the app fails fast — keep it in user-secrets locally, an app setting in Azure.
+- Environment variables **win over user-secrets** in ASP.NET Core config → a leftover `Jwt__Key` env var silently overrides the user-secret; check `$env:Jwt__Key` (and User/Machine scopes) when the key seems wrong.
+- Azure Key Vault holds exactly **one** secret here (the JWT key) — passwordless DB and a public Google client id mean nothing else needs vaulting.
+- Register Key Vault as a config source **gated on a `KeyVault:Uri` app setting**, not on the environment name → it stays optional, so the app runs locally with no vault, CI, or Azure login.
+- Use a **Vault (Standard tier)**, not **Managed HSM** — Managed HSM stores cryptographic keys, not secrets, so it can't even hold the JWT key.
 - `RandomNumberGenerator.GetBytes(int)` doesn't exist in Windows PowerShell 5.1 → use `Create().GetBytes($bytes)`.
 - Visual Studio publish profiles (`*.pubxml`) can leak your App Service name → add them to `.gitignore`.
 - Google sign-in: the client ID is public (no secret), must match on frontend and backend, and the site's origin must be added to Google's Authorized JavaScript origins.
+
+## Local dev & auth testing
+
+- `401 … "The signature key was not found"` means the token was signed with a **different key** than the running app validates with — almost always a stale token from an earlier run or a cross-instance token (deployed vs local), not a code bug. Get a fresh token from the same instance you're calling.
+- Pin `Jwt:Key` in user-secrets so it **survives restarts** — an ad-hoc key (random per run) invalidates every previously issued token.
+- Swagger's **Authorize** box takes the **raw token, no `Bearer ` prefix** (the HTTP bearer scheme adds it); double-prefixing gives a 401.
+- Access tokens live **15 minutes** by design → protected calls 401 after that; log in again for a new one.
+- In PowerShell, don't paste multi-line commands using backtick (`` ` ``) continuations — pasting splits them and the request loses its body (**415 Unsupported Media Type**). Keep each call on one line, or use `Invoke-RestMethod` with a `$body` variable.

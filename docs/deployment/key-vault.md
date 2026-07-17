@@ -369,10 +369,10 @@ Then confirm end to end: log in with the demo account, get an access token, and 
 endpoint with it:
 
 ```bash
-TOKEN=$(curl -s -X POST http://localhost:5000/api/auth/login \
+TOKEN=$(curl -s -X POST http://localhost:5080/api/auth/login \
   -H 'Content-Type: application/json' \
   -d '{"email":"demo@todoapp.local","password":"Password123!"}' | jq -r .accessToken)
-curl -s http://localhost:5000/api/categories -H "Authorization: Bearer $TOKEN"   # expect 200
+curl -s http://localhost:5080/api/categories -H "Authorization: Bearer $TOKEN"   # expect 200
 ```
 
 A valid round trip proves the same key that *signed* the token also *validates* it. **Negative test:**
