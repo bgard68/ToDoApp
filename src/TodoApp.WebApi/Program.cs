@@ -18,12 +18,21 @@ var builder = WebApplication.CreateBuilder(args);
 // so its secrets override the earlier providers, and Jwt:Key resolves from the vault automatically.
 // No consuming code changes: AuthenticationSetup still just reads Jwt:Key, and its fail-fast guard
 // catches the case where neither the vault nor any other source supplies the key.
+//
+// Authenticate with the App Service system-assigned managed identity directly via
+// ManagedIdentityCredential — NOT DefaultAzureCredential. DefaultAzureCredential probes ~8
+// credential sources in sequence (environment, workload identity, dev tooling, etc.); on App
+// Service those probes can stall, and the stacked timeouts blow the container's ~230s startup
+// limit, causing a hang rather than a clear error. ManagedIdentityCredential targets exactly the
+// identity that exists in Azure, so it resolves fast and, if the vault is unreachable/denied,
+// fails fast with a real exception instead of hanging. This block only runs when KeyVault:Uri is
+// set (Azure), so local development — which leaves the URI unset — is unaffected.
 var keyVaultUri = builder.Configuration["KeyVault:Uri"];
 if (!string.IsNullOrWhiteSpace(keyVaultUri))
 {
     builder.Configuration.AddAzureKeyVault(
         new Uri(keyVaultUri),
-        new DefaultAzureCredential());
+        new ManagedIdentityCredential());
 }
 
 const string CorsPolicy = "FrontendPolicy";
