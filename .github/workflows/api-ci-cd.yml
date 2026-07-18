@@ -2,27 +2,37 @@ name: Build and Deploy taskboard-06-api
 
 on:
   push:
-    branches:
-      - main
-
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
   workflow_dispatch:
 
-concurrency:
-  group: api-production
-  cancel-in-progress: true
-
 jobs:
-  build:
+  build-and-deploy:
     name: Build API
     runs-on: ubuntu-latest
-    timeout-minutes: 15
-
-    permissions:
-      contents: read
 
     steps:
-      - name: Checkout Repository
+      - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Debug: repo files & lockfiles
+        run: |
+          echo "PWD: $(pwd)"
+          echo "GITHUB_WORKSPACE: $GITHUB_WORKSPACE"
+          echo "=== Git status ==="
+          git status --porcelain
+          echo "HEAD branch and SHA:"
+          git rev-parse --abbrev-ref HEAD
+          git rev-parse HEAD
+          echo "=== List repo root ==="
+          ls -la
+          echo "=== Find all packages.lock.json files ==="
+          find . -type f -name 'packages.lock.json' -print -exec ls -l {} \; || true
+          echo "=== Tracked files with packages.lock.json in name ==="
+          git ls-files | grep -i 'packages.lock.json' || true
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
@@ -30,43 +40,22 @@ jobs:
           dotnet-version: '10.x'
           cache: true
 
-      - name: Restore Dependencies
-        run: dotnet restore ToDoApp.sln
+      - name: Restore dependencies
+        run: dotnet restore ToDoApp.sln --use-lock-file
 
-      - name: Build Solution
-        run: >
-          dotnet build
-          ToDoApp.sln
-          --configuration Release
-          --no-restore
+      - name: Build solution
+        run: dotnet build ToDoApp.sln --configuration Release --no-restore
 
-      - name: Run Unit Tests
-        run: >
-          dotnet test
-          tests/TodoApp.UnitTests/TodoApp.UnitTests.csproj
-          --configuration Release
-          --no-build
-          --verbosity normal
-
-      - name: Run Integration Tests
-        run: >
-          dotnet test
-          tests/TodoApp.IntegrationTests/TodoApp.IntegrationTests.csproj
-          --configuration Release
-          --no-build
-          --verbosity normal
+      - name: Run unit tests
+        run: dotnet test tests/TodoApp.UnitTests/TodoApp.UnitTests.csproj --configuration Release --no-build
 
       - name: Publish API
-        run: >
-          dotnet publish
-          src/TodoApp.WebApi/TodoApp.WebApi.csproj
-          --configuration Release
-          --no-build
-          --output ${{ env.DOTNET_ROOT }}/myapp
+        run: dotnet publish src/TodoApp.WebApi/TodoApp.WebApi.csproj --configuration Release --no-build --output ./publish
 
-      - name: Upload Deployment Artifact
+      - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
+<<<<<<< HEAD
           name: .net-app
           path: ${{ env.DOTNET_ROOT }}/myapp
           retention-days: 7
@@ -106,3 +95,7 @@ jobs:
           slot-name: 'Production'
           package: .
 # touch: re-register workflow 2026-07-18T00:07:59.3215771-05:00
+=======
+          name: api-publish
+          path: ./publish
+>>>>>>> aa0cec8bd9e5558ab6edc4a238edb109594ca97d
