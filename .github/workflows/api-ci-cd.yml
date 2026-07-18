@@ -39,6 +39,8 @@ jobs:
         with:
           dotnet-version: '10.x'
           cache: true
+          # This wildcard tells GitHub to look inside Application, WebAPI, etc.
+          cache-dependency-path: '**/packages.lock.json' 
 
       - name: Restore dependencies
         run: dotnet restore ToDoApp.sln --use-lock-file
