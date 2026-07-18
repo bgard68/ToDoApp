@@ -18,7 +18,7 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Debug: repo files & lockfiles
+      - name: "Debug: repo files & lockfiles"
         run: |
           echo "PWD: $(pwd)"
           echo "GITHUB_WORKSPACE: $GITHUB_WORKSPACE"
@@ -99,3 +99,4 @@ jobs:
           name: api-publish
           path: ./publish
 >>>>>>> aa0cec8bd9e5558ab6edc4a238edb109594ca97d
+
