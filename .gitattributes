@@ -1,0 +1,16 @@
+# Normalize line endings across the repo.
+# Store everything as LF in git and check out as LF, so Windows CRLF never
+# shows the whole tree as "modified" again. Git auto-detects binary files
+# (via text=auto) and leaves them untouched.
+* text=auto eol=lf
+
+# Belt-and-suspenders: keep common binaries binary.
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.gif  binary
+*.ico  binary
+*.woff  binary
+*.woff2 binary
+*.dll binary
+*.exe binary
