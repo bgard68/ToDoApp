@@ -105,3 +105,4 @@ jobs:
           app-name: 'taskboard-06-api'
           slot-name: 'Production'
           package: .
+# touch: re-register workflow 2026-07-18T00:07:59.3215771-05:00
