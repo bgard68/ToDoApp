@@ -1,0 +1,107 @@
+name: Build and Deploy taskboard-06-api
+
+on:
+  push:
+    branches:
+      - main
+
+  workflow_dispatch:
+
+concurrency:
+  group: api-production
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build API
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.x'
+          cache: true
+
+      - name: Restore Dependencies
+        run: dotnet restore ToDoApp.sln
+
+      - name: Build Solution
+        run: >
+          dotnet build
+          ToDoApp.sln
+          --configuration Release
+          --no-restore
+
+      - name: Run Unit Tests
+        run: >
+          dotnet test
+          tests/TodoApp.UnitTests/TodoApp.UnitTests.csproj
+          --configuration Release
+          --no-build
+          --verbosity normal
+
+      - name: Run Integration Tests
+        run: >
+          dotnet test
+          tests/TodoApp.IntegrationTests/TodoApp.IntegrationTests.csproj
+          --configuration Release
+          --no-build
+          --verbosity normal
+
+      - name: Publish API
+        run: >
+          dotnet publish
+          src/TodoApp.WebApi/TodoApp.WebApi.csproj
+          --configuration Release
+          --no-build
+          --output ${{ env.DOTNET_ROOT }}/myapp
+
+      - name: Upload Deployment Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: .net-app
+          path: ${{ env.DOTNET_ROOT }}/myapp
+          retention-days: 7
+
+  deploy:
+    name: Deploy API
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    needs: build
+
+    environment:
+      name: Production
+
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+      - name: Download Deployment Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: .net-app
+
+      - name: Login to Azure
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZUREAPPSERVICE_CLIENTID_566B4FFECC144FF99662F3E334946913 }}
+          tenant-id: ${{ secrets.AZUREAPPSERVICE_TENANTID_666F8329ACAC4EF9A4E3DFE024EB99CA }}
+          subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID_0056D27AD4F64315858EF3757BCD85C7 }}
+
+      - name: Deploy to Azure App Service
+        id: deploy-to-webapp
+        uses: azure/webapps-deploy@v3
+        with:
+          app-name: 'taskboard-06-api'
+          slot-name: 'Production'
+          package: .
