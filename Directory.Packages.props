@@ -1,0 +1,9 @@
+<Project>
+  <PropertyGroup>
+    <!-- Instructs dotnet restore to create packages.lock.json files for projects that use PackageReference -->
+    <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
+
+    <!-- Optional: treat lock file as authoritative for restore (prevents changes to locked versions unless explicitly updated) -->
+    <!-- <RestoreLockedMode>true</RestoreLockedMode> -->
+  </PropertyGroup>
+</Project>
