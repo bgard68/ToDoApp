@@ -72,10 +72,10 @@ jobs:
         if: github.ref == 'refs/heads/main'
         uses: azure/login@v2
         with:
-          client-id:       ${{ secrets.AZUREAPPSERVICE_CLIENTID }}
-          tenant-id:       ${{ secrets.AZUREAPPSERVICE_TENANTID }}
-          subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID }}
- 
+          client-id: ${{ secrets.AZUREAPPSERVICE_CLIENTID_566B4FFECC144FF99662F3E334946913 }}
+          tenant-id: ${{ secrets.AZUREAPPSERVICE_TENANTID_666F8329ACAC4EF9A4E3DFE024EB99CA }}
+          subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID_0056D27AD4F64315858EF3757BCD85C7 }}
+          
       - name: Deploy to Azure Web App
         if: github.ref == 'refs/heads/main'
         uses: azure/webapps-deploy@v3
