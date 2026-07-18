@@ -77,6 +77,8 @@ testable via a `FakeDateTimeProvider`.
 > included `Dockerfile.api`, `frontend/Dockerfile`, `docker-compose.yml`, and `deploy/`
 > samples. For a step-by-step **Azure** deploy (App Service + Static Web Apps), **Google
 > sign-in** setup, and **secrets/user-secrets** management, see the **[Azure setup runbook](docs/deployment/azure-setup.md)**.
+> Hit a wall getting the API or Key Vault live on Azure? The **[Key Vault deployment troubleshooting log](docs/deployment/keyvault-deployment-troubleshooting.md)**
+> is a chronological post-mortem of every symptom, log technique, root cause, and command.
 
 ## Documentation
 
@@ -90,11 +92,13 @@ All guides live under [`docs/`](docs/), grouped by topic. New to the project? St
 - **[Deployment guide](docs/deployment/deployment.md)** — build, compile, and deploy anywhere (Docker Compose, Linux + nginx, Azure), with the included Dockerfiles and compose samples.
 - **[Google sign-in](docs/deployment/google-signin.md)** — end-to-end Google sign-in setup: Cloud project, consent screen, OAuth client, wiring the client ID into the frontend and backend, and troubleshooting.
 - **[Key Vault](docs/deployment/key-vault.md)** — what this project stores in Azure Key Vault (just the JWT signing key — passwordless DB and a public client id mean nothing else), the two ways to wire it in, RBAC vs. access-policy, and how it stays optional locally.
+- **[Key Vault deployment troubleshooting](docs/deployment/keyvault-deployment-troubleshooting.md)** — a full chronological post-mortem of getting the API + Key Vault working on Azure: every symptom, how we read the logs (Kudu VFS API, `docker.log`), the root-cause chain (stale build, wwwroot pollution, `DefaultAzureCredential` hang, missing `https://`, SQL cold start), the clean rebuild, and every PowerShell / `az` / SQL / bash command used.
 
 **Architecture & design** — [`docs/architecture/`](docs/architecture/)
 
 - **[Database portability](docs/architecture/database-portability.md)** — keeping behavior identical across relational providers (SQLite / SQL Server / PostgreSQL): the provider switch, collation & cascade gotchas, multi-provider CI, and what a non-relational port (Cosmos / MongoDB / DynamoDB) would actually take.
 - **[Onion architecture diagram](docs/architecture/onion-architecture.svg)** — the layered dependency diagram used above.
+- **[Architecture & practices assessment](docs/architecture/assessment.md)** — an evidence-based review of how well the project adheres to Clean Architecture, SOLID, and CI/CD best practices, with graded verdicts and a prioritized improvement backlog.
 
 **Reference**
 
