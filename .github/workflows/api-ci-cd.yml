@@ -58,6 +58,14 @@ jobs:
  
       - name: Publish API
         run: dotnet publish src/TodoApp.WebApi/TodoApp.WebApi.csproj --configuration Release --no-build --output ./publish
+
+      - name: Verify publish output
+        run: |
+          if [ ! -f ./publish/TodoApp.WebApi.dll ]; then
+            echo "::error title=Publish failed::No TodoApp.WebApi.dll in ./publish - refusing to continue."
+            exit 1
+          fi
+          echo "Publish OK: $(ls -1 ./publish | wc -l) files."
  
       # Keep the build output as a downloadable artifact (handy for PR builds and manual deploys).
       - name: Upload artifact
