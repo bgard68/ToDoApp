@@ -93,6 +93,7 @@ All guides live under [`docs/`](docs/), grouped by topic. New to the project? St
 - **[Google sign-in](docs/deployment/google-signin.md)** — end-to-end Google sign-in setup: Cloud project, consent screen, OAuth client, wiring the client ID into the frontend and backend, and troubleshooting.
 - **[Key Vault](docs/deployment/key-vault.md)** — what this project stores in Azure Key Vault (just the JWT signing key — passwordless DB and a public client id mean nothing else), the two ways to wire it in, RBAC vs. access-policy, and how it stays optional locally.
 - **[Key Vault deployment troubleshooting](docs/deployment/keyvault-deployment-troubleshooting.md)** — a full chronological post-mortem of getting the API + Key Vault working on Azure: every symptom, how we read the logs (Kudu VFS API, `docker.log`), the root-cause chain (stale build, wwwroot pollution, `DefaultAzureCredential` hang, missing `https://`, SQL cold start), the clean rebuild, and every PowerShell / `az` / SQL / bash command used.
+- **[Pipeline testing & error handling](docs/deployment/pipeline-testing.md)** — how the GitHub Actions pipeline is structured, how GitHub's fail-fast + notifications stop a broken build/test/publish from ever deploying, the "Verify publish output" guard against a hollow publish, and how to test all of it (including a zero-change local check).
 
 **Architecture & design** — [`docs/architecture/`](docs/architecture/)
 
