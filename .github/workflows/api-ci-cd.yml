@@ -43,10 +43,10 @@ jobs:
           cache-dependency-path: '**/packages.lock.json' 
 
       - name: Restore dependencies
-        run: dotnet restore ToDoApp.sln --use-lock-file
+        run: dotnet restore TodoApp.sln --use-lock-file
 
       - name: Build solution
-        run: dotnet build ToDoApp.sln --configuration Release --no-restore
+        run: dotnet build TodoApp.sln --configuration Release --no-restore
 
       - name: Run unit tests
         run: dotnet test tests/TodoApp.UnitTests/TodoApp.UnitTests.csproj --configuration Release --no-build
@@ -59,3 +59,4 @@ jobs:
         with:
           name: api-publish
           path: ./publish
+
