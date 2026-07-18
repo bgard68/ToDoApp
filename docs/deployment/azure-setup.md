@@ -312,6 +312,32 @@ az webapp config appsettings set -g $RG -n $API_APP --settings \
 
 ---
 
+## Phase 13 — Continuous deployment (GitHub Actions)
+
+Phases 7 and 10 are the **first, manual** deploy. For everything after, the repo ships two
+GitHub Actions workflows so a push to `main` redeploys automatically — no local `az` needed.
+
+- **`.github/workflows/api-ci-cd.yml`** — restores (locked), builds, runs unit tests, publishes
+  **only** `TodoApp.WebApi.csproj`, then logs in with **OIDC** (`azure/login@v2`) and deploys with
+  `azure/webapps-deploy@v3`. Deploy steps are gated `if: github.ref == 'refs/heads/main'`, so PRs
+  build and test but never deploy. Requires `permissions: id-token: write`.
+- **`.github/workflows/frontend-ci-cd.yml`** — builds the Vite SPA (with `VITE_API_URL` /
+  `VITE_GOOGLE_CLIENT_ID` injected from repo **Variables**) and deploys to Static Web Apps with
+  `Azure/static-web-apps-deploy@v1`, including PR preview environments.
+
+Wire it up once via **App Service → Deployment Center → GitHub → User-assigned identity**: that
+creates the federated credential, grants the identity access, and writes the three
+`AZUREAPPSERVICE_CLIENTID/TENANTID/SUBSCRIPTIONID_<suffix>` secrets the API workflow references. The
+SWA workflow uses the `AZURE_STATIC_WEB_APPS_API_TOKEN_*` secret created when the Static Web App was
+made. Add the two `VITE_*` **Variables** (Settings → Secrets and variables → Actions → **Variables**);
+`VITE_API_URL` must include `https://`.
+
+> Deployment threw a curve? The **[Key Vault deployment troubleshooting log](keyvault-deployment-troubleshooting.md)**
+> is a full post-mortem — stale builds, `wwwroot` pollution, the `DefaultAzureCredential` hang, the
+> mismatched-secret-name `azure/login` failure, and every command used to diagnose them.
+
+---
+
 ## Notes & gotchas (all pre-handled in this repo)
 
 - **Regional hostname** for `VITE_API_URL` — the short `<app>.azurewebsites.net` form fails to

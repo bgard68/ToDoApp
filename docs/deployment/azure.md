@@ -12,9 +12,10 @@ For non-Azure targets (Docker, Linux + nginx) see [DEPLOYMENT.md](deployment.md)
 - [2. Set up Google sign-in](#2-set-up-google-sign-in)
 - [3. Deploy the .NET API to App Service](#3-deploy-the-net-api-to-app-service)
 - [4. Deploy the React SPA to Static Web Apps](#4-deploy-the-react-spa-to-static-web-apps)
-- [5. Wire the two together (CORS + Google origins)](#5-wire-the-two-together)
-- [6. Production secrets with Key Vault](#6-production-secrets-with-key-vault-recommended)
-- [7. Environment variable reference](#7-environment-variable-reference)
+- [5. Continuous deployment (GitHub Actions)](#5-continuous-deployment-github-actions)
+- [6. Wire the two together (CORS + Google origins)](#6-wire-the-two-together)
+- [7. Production secrets with Key Vault](#7-production-secrets-with-key-vault-recommended)
+- [8. Environment variable reference](#8-environment-variable-reference)
 
 ---
 
@@ -238,7 +239,31 @@ cd ..
 
 ---
 
-## 5. Wire the two together
+## 5. Continuous deployment (GitHub Actions)
+
+The commands above are the **manual** first deploy. The repo also ships two workflows in
+`.github/workflows/` so a push to `main` redeploys automatically:
+
+- **`api-ci-cd.yml`** — build → unit-test → publish `TodoApp.WebApi.csproj` → **OIDC** login
+  (`azure/login@v2`, needs `permissions: id-token: write`) → `azure/webapps-deploy@v3`. Deploy is
+  gated to `main`, so PRs build/test only.
+- **`frontend-ci-cd.yml`** — build the Vite SPA (env from repo **Variables**) → deploy to Static Web
+  Apps with `Azure/static-web-apps-deploy@v1`, with PR preview environments.
+
+The one-click way to provision the API's OIDC credential, role, and secrets is **App Service →
+Deployment Center → GitHub → User-assigned identity** — it writes the
+`AZUREAPPSERVICE_CLIENTID/TENANTID/SUBSCRIPTIONID_<suffix>` secrets the API workflow references.
+Store `VITE_API_URL` (with `https://`) and `VITE_GOOGLE_CLIENT_ID` as repo **Variables**, and keep the
+`AZURE_STATIC_WEB_APPS_API_TOKEN_*` secret for the SWA. After deleting an old App Service or SWA,
+prune its now-unreferenced secrets.
+
+> **Hit a wall deploying?** See the **[Key Vault deployment troubleshooting log](keyvault-deployment-troubleshooting.md)**
+> — a chronological post-mortem of stale builds, `wwwroot` pollution, the `DefaultAzureCredential`
+> hang, the mismatched-secret `azure/login` failure, and every diagnostic command.
+
+---
+
+## 6. Wire the two together
 
 The browser calls the API from the SPA's origin, so allow that origin on the API, and add it
 to Google:
@@ -258,7 +283,7 @@ Then in the Google console (step 2) add `$SWA_URL` to **Authorized JavaScript or
 
 ---
 
-## 6. Production secrets with Key Vault (recommended)
+## 7. Production secrets with Key Vault (recommended)
 
 The JWT signing key is the **only** real secret this project has — the database is passwordless
 (managed identity) and the Google client id is public — so Key Vault holds exactly one value. Use a
@@ -309,7 +334,7 @@ source supplies the key.
 
 ---
 
-## 7. Environment variable reference
+## 8. Environment variable reference
 
 | Purpose | Local dev | Azure |
 |---------|-----------|-------|
