@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { AuthApi, getRefreshToken, setOnUnauthorized } from './api.js';
+import { AuthApi, getRefreshToken, setOnUnauthorized } from './lib/apiClient.js';
 import AuthForm from './components/AuthForm.jsx';
 import KanbanBoard from './components/KanbanBoard.jsx';
 

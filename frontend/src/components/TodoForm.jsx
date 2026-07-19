@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { PRIORITIES } from '../api.js';
+import { PRIORITIES } from '../lib/constants.js';
 
 const empty = { title: '', description: '', priority: 1, categoryId: '', dueDate: '' };
 

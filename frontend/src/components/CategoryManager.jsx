@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { CategoryApi, DEFAULT_CATEGORY_COLOR } from '../api.js';
+import { CategoryApi } from '../lib/apiClient.js';
+import { DEFAULT_CATEGORY_COLOR } from '../lib/constants.js';
 
 const emptyDraft = { name: '', color: '#7fb2e6' };
 

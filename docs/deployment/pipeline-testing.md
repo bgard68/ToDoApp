@@ -23,7 +23,9 @@ checkout → setup .NET → restore → build → run unit tests → publish →
   only a push to `main` actually ships.
 
 The frontend has its own pipeline, [`frontend-ci-cd.yml`](../../.github/workflows/frontend-ci-cd.yml),
-which builds the Vite SPA and deploys it to Azure Static Web Apps.
+which **runs the Vitest suite as a gate**, then builds the Vite SPA and deploys it to Azure Static Web
+Apps — if a frontend test fails, the deploy is skipped (see §5 and the
+[Testing guide](../development/testing.md) for how the gate and the test suites work).
 
 ---
 
@@ -139,6 +141,6 @@ from section 2 is guaranteed.)
 
 ---
 
-_See also: [Azure setup runbook](azure-setup.md) · [Azure reference](azure.md) · [Key Vault deployment troubleshooting](keyvault-deployment-troubleshooting.md) · [Lessons learned](../lessons.md) · [Architecture & practices assessment](../architecture/assessment.md)._
+_See also: [Testing guide (frontend + API)](../development/testing.md) · [Azure setup runbook](azure-setup.md) · [Azure reference](azure.md) · [Key Vault deployment troubleshooting](keyvault-deployment-troubleshooting.md) · [Lessons learned](../lessons.md) · [Architecture & practices assessment](../architecture/assessment.md)._
 
 > **← Back to the main [README](../../README.md).**

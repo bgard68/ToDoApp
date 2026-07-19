@@ -34,6 +34,16 @@ reference for future deployments — most of these cost more time than the code 
 - The API must allow the site's origin via CORS (`Cors__AllowedOrigins__0`), exact URL, **no trailing slash**.
 - A GET to a POST-only endpoint (e.g. `/api/auth/login`) returns 405 — that's expected, not a bug; test through the app, not the address bar.
 
+## Diagnosing a 500 / failed request in production
+
+When the deployed frontend can't talk to the API, it's almost always one of three culprits — check them in this order before touching code:
+
+- **The database is waking up (transient 500).** Azure SQL **serverless auto-pauses when idle**, and the first request after a pause cold-starts the database; if the app tries to use it before it's up, the request fails (errors **-2 / 40613**) and surfaces as a 500. This is expected on the first hit after a quiet period. The app is hardened against it — EF `EnableRetryOnFailure` (retrying error -2), a longer `Connect Timeout`, and non-blocking startup/seed — so **retry once or twice** and it should clear. A 500 that *persists* across retries is a real error (check Log Stream / Kudu), not a cold start.
+- **CORS is misconfigured (browser blocks the response).** The API must allow the site's exact origin via `Cors__AllowedOrigins__0` — the **exact URL, no trailing slash**. If it's missing or wrong, the browser blocks the call and the console shows a CORS error even though the API itself is healthy (calling the API directly still works). Fix the app setting, not the frontend.
+- **`VITE_API_URL` points at the wrong URL.** It must be the **API** URL (the one that shows Swagger) and **must include `https://`**. Without the scheme the browser treats it as a relative path and the call resolves to the SPA's own host → **405** (or a 404). It is *not* the site's own URL. Because `VITE_*` vars are baked in at build time, changing this requires a **rebuild/redeploy**, not just a settings toggle.
+
+Quick triage: open the browser dev-tools Network tab. A blocked-by-CORS entry points to culprit #2; a request going to the SPA's own host (or a 405) points to #3; a 500 that succeeds on retry is #1.
+
 ## CI/CD (GitHub Actions)
 
 The repo ships **two** workflows in `.github/workflows/`: `api-ci-cd.yml` (build → test → publish → deploy the API to App Service via OIDC) and `frontend-ci-cd.yml` (build → deploy the SPA to Static Web Apps). Lessons from getting both green:
@@ -95,3 +105,41 @@ Making the repo public does **not** expose your Actions secrets — provided you
 - Swagger's **Authorize** box takes the **raw token, no `Bearer ` prefix** (the HTTP bearer scheme adds it); double-prefixing gives a 401.
 - Access tokens live **15 minutes** by design → protected calls 401 after that; log in again for a new one.
 - In PowerShell, don't paste multi-line commands using backtick (`` ` ``) continuations — pasting splits them and the request loses its body (**415 Unsupported Media Type**). Keep each call on one line, or use `Invoke-RestMethod` with a `$body` variable.
+
+## Frontend (React + Vite)
+
+- **The "post back" when moving a card was a full reload, not a real page post.** Dragging a card between lanes called the API and then re-fetched the whole board, so the UI visibly flashed/reset — it *looked* like a postback. The fix is **optimistic UI**: `useTodos.moveCard` updates local state immediately, then reconciles just the affected card from the server response, and only falls back to a full `reload()` **on error**. The board never flashes on the happy path, and a failed move rolls back cleanly.
+- **Keep the optimistic update and the server reconcile in one place.** All todo mutations (move, create, update, delete) live in the `useTodos` hook, not in the view. The view (`KanbanBoard`) just renders and calls hook methods — so the optimistic/rollback logic is written once and is unit-testable.
+- **On error, reload *before* setting the error message.** `reload()` calls `setError('')` internally, so if you set the error first and reload after, the reload wipes your message. Order matters: `await reload(); setError(err.message);` — otherwise the user never sees why the action failed. (This is exactly the bug the `useTodos` "reverts by reloading when a move fails" test now guards.)
+- **`VITE_*` env vars are build-time**, so anything the SPA needs from config (`VITE_API_URL`, `VITE_GOOGLE_CLIENT_ID`) must be set as GitHub **repository Variables** and baked in at build — see the production-500 triage above for how a wrong `VITE_API_URL` shows up.
+
+## The real find — concurrent refresh signed users out everywhere
+
+This was the subtle one, and worth its own note because it sits at the seam between the backend's security hardening and the frontend's concurrency.
+
+**Symptom:** users occasionally got signed out of *every* device for no obvious reason, usually right after the access token expired.
+
+**Root cause:** the access token lives 15 minutes, so when it expires the board often fires **several API calls at once** (todos, categories, etc.). Each call 401s, and each independently tried to refresh — POSTing the **same** refresh token. But the backend **rotates** refresh tokens on every refresh and, by design, treats a second use of an already-rotated token as **reuse / possible theft**: it rotates the user's security stamp and **revokes every outstanding session**. So the app's own concurrency was tripping the backend's compromise-response and logging the user out everywhere. The backend was behaving *correctly* — the bug was the client hammering refresh in parallel.
+
+**Fix (client side):** de-duplicate refresh into a **single in-flight promise**. The first 401 starts the refresh; every other caller awaits the *same* promise instead of starting its own, so exactly one rotation happens:
+
+```js
+let refreshInFlight = null;
+function refreshSession() {
+  if (!refreshInFlight) {
+    refreshInFlight = performRefresh().finally(() => { refreshInFlight = null; });
+  }
+  return refreshInFlight; // all concurrent callers share this one refresh
+}
+```
+
+**Lesson:** when the server implements refresh-token rotation with reuse detection (a good, standard security pattern), the client **must** serialize refreshes. Rotation + reuse-detection + parallel refresh = accidental self-inflicted "sign out everywhere." This also argues for keeping the refresh token in an httpOnly cookie and letting a single interceptor own the refresh, rather than every request racing to do it.
+
+## Dev-environment & tooling gotchas
+
+High-level notes on the environment snags hit while doing this work (and how each was resolved), so they don't cost time again:
+
+- **The remote-file bridge can't delete — only move.** A `git status` run through the device bridge left a stale `.git/index.lock`, which then blocks the next git command ("unable to unlink index.lock"). The bridge tooling can't `rm`, so the fix is to **`mv` the lock aside** (e.g. `mv .git/index.lock .git/index.lock.stale`); git then proceeds. Same rule applies to any file the bridge needs to "remove" — move it, don't delete it.
+- **`vite build` won't run in the device's Linux VM** — the Windows `node_modules` has the wrong native rollup binary (`MODULE_NOT_FOUND` on `rollup/dist/native.js`). For a quick structural sanity check without a full bundler, parse the changed modules with **`@babel/parser`** plus a small import/export resolver; for the real thing, run `npm run build` / `npm test` **locally on Windows**.
+- **The cloud sandbox's npm registry is blocked (403).** `npm install` / `npm ci` can't run there, so the frontend deps and the test suite must be installed and run **locally**. Remember to commit the updated **`package-lock.json`** afterward, or CI's `npm ci` fails on a lockfile mismatch.
+- **When syncing text files byte-for-byte, verify with a checksum.** A base64 hand-off once flipped a single character (an em dash became an arrow); an **`md5sum` compare** after each sync catches it immediately, and re-copying fixes it. Cheap insurance for any file moved between environments.

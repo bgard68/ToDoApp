@@ -99,7 +99,11 @@ All guides live under [`docs/`](docs/), grouped by topic. New to the project? St
 
 - **[Database portability](docs/architecture/database-portability.md)** — keeping behavior identical across relational providers (SQLite / SQL Server / PostgreSQL): the provider switch, collation & cascade gotchas, multi-provider CI, and what a non-relational port (Cosmos / MongoDB / DynamoDB) would actually take.
 - **[Onion architecture diagram](docs/architecture/onion-architecture.svg)** — the layered dependency diagram used above.
-- **[Architecture & practices assessment](docs/architecture/assessment.md)** — an evidence-based review of how well the project adheres to Clean Architecture, SOLID, and CI/CD best practices, with graded verdicts and a prioritized improvement backlog.
+- **[Architecture & practices assessment](docs/architecture/assessment.md)** — an evidence-based review of how well the project adheres to Clean Architecture, SOLID, design patterns, and CI/CD best practices, with graded verdicts and a prioritized improvement backlog.
+
+**Development** — [`docs/development/`](docs/development/)
+
+- **[Testing guide](docs/development/testing.md)** — how the frontend (Vitest + React Testing Library) and API (xUnit unit + `WebApplicationFactory` integration) test suites are set up, **step-by-step instructions for adding a new test** on each side, the from-scratch Vitest/RTL standup (including where Babel fits), and the deploy gate that blocks a release when tests fail.
 
 **Reference**
 
