@@ -334,6 +334,48 @@ who pushed the commit.**
 
 ---
 
+## 5. Dependencies — `package.json` & `package-lock.json`
+
+Two files describe the frontend's npm dependencies, and **both belong in git**. They do different jobs:
+
+- **`package.json`** — the file *you* (and npm) edit. It declares the project's direct dependencies,
+  usually as version *ranges* (e.g. `"vitest": "^2.1.8"` means "2.1.8 or any newer 2.x"), plus the
+  `scripts`, name, and other metadata. It's the human-facing statement of intent: "the app needs
+  roughly these packages."
+- **`package-lock.json`** — a file npm *generates* and maintains automatically (you never hand-edit
+  it). It records the **exact** resolved version of every package **and every nested sub-dependency**,
+  each with an integrity hash. It's the machine-precise snapshot: "here is the exact tree that was
+  actually installed, bit-for-bit."
+
+The gap between them is the whole point. `package.json` says `^2.1.8`, so one `npm install` might
+resolve to 2.1.8 and another next month to 2.1.15 — same manifest, different code. The lockfile pins
+the answer so everyone ends up with an identical `node_modules`.
+
+**How they're generated.** `package.json` starts from `npm init` and changes whenever you add a
+dependency: `npm install <pkg>` (runtime) or `npm install -D <pkg>` (dev) writes the new entry into
+`package.json` **and** rewrites `package-lock.json` to match. A plain `npm install` also refreshes the
+lockfile when it's out of date. You don't edit the lockfile by hand — you change `package.json` (or run
+an install) and let npm regenerate it.
+
+**Why both are committed.**
+
+- **Reproducible builds** — with the lockfile committed, every developer, machine, and CI runner
+  installs the exact same versions top to bottom. This is what prevents "works on my machine, breaks in
+  the build."
+- **Security** — the integrity hashes verify each package wasn't tampered with in transit, and pinned
+  versions mean a compromised *newer* release of some deep sub-dependency can't silently slip in.
+- **CI depends on it** — the pipeline runs **`npm ci`** (not `npm install`), the strict, lockfile-only
+  mode. `npm ci` **refuses to run** if `package-lock.json` is missing or out of sync with
+  `package.json`. So after adding a dependency you must commit the updated lockfile alongside
+  `package.json`, or CI fails immediately (exactly what we hit when adding the Vitest/Testing-Library
+  dev deps).
+
+**Rule of thumb:** change `package.json` (or `npm install <pkg>`), let npm rewrite `package-lock.json`,
+and **commit both together in the same change**. The installed `node_modules/` folder itself is *not*
+committed — it's rebuilt from these two files and stays in `.gitignore`.
+
+---
+
 _See also: [CI/CD pipeline testing](../deployment/pipeline-testing.md) · [Architecture & practices assessment](../architecture/assessment.md) · [Lessons learned](../lessons.md)._
 
 > **← Back to the main [README](../../README.md).**
