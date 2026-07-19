@@ -18,4 +18,18 @@ describe('<AuthForm />', () => {
     await userEvent.click(screen.getByRole('button', { name: /create one/i }));
     expect(screen.getByRole('heading', { name: /create account/i })).toBeInTheDocument();
   });
+
+  it('toggles password visibility with the show/hide control', async () => {
+    render(<AuthForm onLogin={vi.fn()} onRegister={vi.fn()} onGoogle={vi.fn()} />);
+    const pw = screen.getByLabelText(/^password$/i);
+    expect(pw).toHaveAttribute('type', 'password');
+
+    // masked by default → button reads "Show password"
+    await userEvent.click(screen.getByRole('button', { name: /show password/i }));
+    expect(pw).toHaveAttribute('type', 'text');
+
+    // now revealed → button reads "Hide password"; clicking masks it again
+    await userEvent.click(screen.getByRole('button', { name: /hide password/i }));
+    expect(pw).toHaveAttribute('type', 'password');
+  });
 });
