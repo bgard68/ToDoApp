@@ -5,6 +5,7 @@ export default function AuthForm({ onLogin, onRegister, onGoogle }) {
   const [mode, setMode] = useState('login'); // 'login' | 'register'
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
 
@@ -68,13 +69,29 @@ export default function AuthForm({ onLogin, onRegister, onGoogle }) {
 
           <label className="auth__label">
             Password
-            <input
-              type="password"
-              autoComplete={isRegister ? 'new-password' : 'current-password'}
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              required
-            />
+            <div className="pw-field">
+              <input
+                type={showPassword ? 'text' : 'password'}
+                autoComplete={isRegister ? 'new-password' : 'current-password'}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                required
+              />
+              <button
+                type="button"
+                className="pw-toggle"
+                onClick={() => setShowPassword((v) => !v)}
+                aria-label={showPassword ? 'Hide password' : 'Show password'}
+                aria-pressed={showPassword}
+                title={showPassword ? 'Hide password' : 'Show password'}
+              >
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M2 12s3.8-6.5 10-6.5S22 12 22 12s-3.8 6.5-10 6.5S2 12 2 12Z" />
+                  <circle cx="12" cy="12" r="2.3" fill="currentColor" stroke="none" />
+                  {showPassword && <line x1="4.5" y1="4.5" x2="19.5" y2="19.5" />}
+                </svg>
+              </button>
+            </div>
           </label>
 
           {isRegister && (
