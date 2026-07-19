@@ -137,6 +137,21 @@ Making the repo public does **not** expose your Actions secrets — provided you
 
 **Trade-off accepted:** actual *dragging* still doesn't work on touch — only the tap control does. If true drag-on-touch is ever wanted, revisit option 1 (`@dnd-kit`).
 
+## Date input — native segments can't backspace across; a typed mask fixes it
+
+**Symptom:** editing a due date, Backspace only cleared the segment the caret was on (month, day, or year) and wouldn't carry across — from the year you couldn't backspace back into the month, and clearing the field entirely was awkward.
+
+**Root cause:** the native `<input type="date">` is **segmented** (`mm | dd | yyyy`), and each segment is its own edit context — the browser owns that behavior, so Backspace/Delete are per-segment by design. A controlled React binding made partial edits worse: clearing a segment left the value momentarily "incomplete", the input reported empty, `onChange` fired with `''`, and React reset the field. There's no way to get continuous editing out of the native control.
+
+**Fix:** a small reusable **`DateField`** component that replaces the native input with a masked **text** field:
+
+- Typing digits auto-inserts the `/` separators (`07192026` → `07/19/2026`), and the caret is preserved across reformatting so **Backspace and Delete flow across the whole field** (year → month, through the slashes) and it can be cleared entirely.
+- It validates on completion — an impossible date like `02/30` is treated as empty.
+- A **mini-calendar button sits inside the bar**; clicking it opens the browser's native picker via `HTMLInputElement.showPicker()` (with a focus fallback), and picking a day fills the bar.
+- It takes and emits a plain `yyyy-mm-dd` string, so the surrounding form/save logic is unchanged.
+
+**Lesson:** native `<input type="date">` is great for free validation and the calendar, but its segmented editing can't be made to behave like free text. When continuous typed editing matters, own the input as a masked text field (and re-add the calendar via `showPicker()`) rather than fighting the native control. Used in `TodoForm` and `TaskCard`.
+
 ## The real find — concurrent refresh signed users out everywhere
 
 This was the subtle one, and worth its own note because it sits at the seam between the backend's security hardening and the frontend's concurrency.
