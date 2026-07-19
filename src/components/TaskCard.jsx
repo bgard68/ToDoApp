@@ -1,5 +1,7 @@
 import { useState } from 'react';
-import { PRIORITIES, DEFAULT_CATEGORY_COLOR, findCategory, tint } from '../api.js';
+import { PRIORITIES, DEFAULT_CATEGORY_COLOR } from '../lib/constants.js';
+import { findCategory } from '../lib/categories.js';
+import { tint } from '../lib/colors.js';
 
 const priorityClass = { 0: 'low', 1: 'medium', 2: 'high' };
 
