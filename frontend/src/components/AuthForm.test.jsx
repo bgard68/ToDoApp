@@ -8,7 +8,7 @@ describe('<AuthForm />', () => {
     const onLogin = vi.fn().mockResolvedValue(undefined);
     render(<AuthForm onLogin={onLogin} onRegister={vi.fn()} onGoogle={vi.fn()} />);
     await userEvent.type(screen.getByLabelText(/email/i), 'demo@todoapp.local');
-    await userEvent.type(screen.getByLabelText(/password/i), 'Password123!');
+    await userEvent.type(screen.getByLabelText(/^password$/i), 'Password123!');
     await userEvent.click(screen.getByRole('button', { name: /^sign in$/i }));
     expect(onLogin).toHaveBeenCalledWith('demo@todoapp.local', 'Password123!');
   });
