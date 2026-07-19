@@ -12,10 +12,25 @@
   --high: #e11d48;
   --shadow: 0 1px 3px rgba(0, 0, 0, 0.08), 0 8px 24px rgba(0, 0, 0, 0.06);
   --radius: 12px;
+  color-scheme: light;
 }
 
+/* Manual dark choice (set by the theme toggle, persisted). Overrides the OS default. */
+:root[data-theme='dark'] {
+  --bg: #0f1117;
+  --card: #171a21;
+  --text: #e5e7eb;
+  --muted: #9ca3af;
+  --border: #2a2f3a;
+  --primary: #6366f1;
+  --primary-hover: #818cf8;
+  --shadow: 0 1px 3px rgba(0, 0, 0, 0.4), 0 8px 24px rgba(0, 0, 0, 0.3);
+  color-scheme: dark;
+}
+
+/* System dark — applies only when the user hasn't made an explicit choice. */
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme]) {
     --bg: #0f1117;
     --card: #171a21;
     --text: #e5e7eb;
@@ -24,6 +39,7 @@
     --primary: #6366f1;
     --primary-hover: #818cf8;
     --shadow: 0 1px 3px rgba(0, 0, 0, 0.4), 0 8px 24px rgba(0, 0, 0, 0.3);
+    color-scheme: dark;
   }
 }
 
@@ -68,6 +84,26 @@ select {
   outline: none;
 }
 input:focus, select:focus { border-color: var(--primary); }
+
+/* Native date picker: `color-scheme` (on :root) gives the calendar icon correct
+   contrast in light AND dark; these rules make it a clear, clickable affordance. */
+input[type='date']::-webkit-calendar-picker-indicator { cursor: pointer; opacity: 0.75; }
+input[type='date']:hover::-webkit-calendar-picker-indicator,
+input[type='date']:focus::-webkit-calendar-picker-indicator { opacity: 1; }
+
+/* Light/dark theme toggle button (login card + board header) */
+.theme-toggle {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 34px; height: 34px; padding: 0;
+  background: var(--bg); color: var(--text);
+  border: 1px solid var(--border); border-radius: 999px; cursor: pointer;
+  transition: border-color 0.12s, background 0.12s;
+}
+.theme-toggle:hover { border-color: var(--primary); }
+.theme-toggle:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--primary); }
+.theme-toggle svg { width: 17px; height: 17px; display: block; }
+.auth__card { position: relative; }
+.auth__theme { position: absolute; top: 14px; right: 14px; }
 
 /* Password show/hide toggle (eye icon inside the field) */
 .pw-field { position: relative; }
