@@ -37,8 +37,16 @@ is a React (Vite) single-page app.
   guides, with runnable Dockerfiles and compose files. See the
   [deployment guide](docs/deployment/deployment.md) and [Azure guide](docs/deployment/azure.md).
 
-**Tech:** .NET 10, ASP.NET Core Minimal APIs, EF Core, MediatR, FluentValidation, JWT,
-React 18 + Vite, xUnit, Docker.
+**Tech stack (at a glance):**
+
+- **Backend:** .NET 10 · ASP.NET Core Minimal APIs · Clean Architecture + CQRS (MediatR) · FluentValidation · EF Core 10 · Swagger
+- **Frontend:** React 18 · Vite 5 · custom hooks · `fetch`-based API client · Google Identity Services
+- **Data:** SQLite (dev) / Azure SQL (prod) via a config-driven provider switch
+- **Auth:** JWT · refresh-token rotation + reuse detection · security-stamp revocation · PBKDF2 · Google sign-in · Key Vault
+- **Testing:** Vitest + React Testing Library (frontend) · xUnit + FluentAssertions + `WebApplicationFactory` (backend)
+- **Hosting & CI/CD:** Azure App Service · Azure SQL · Static Web Apps · GitHub Actions (OIDC)
+
+→ See the **[full tech-stack reference](docs/architecture/tech-stack.md)** for a one-line explanation of what each piece does and why it's there.
 
 ## Project layout
 
@@ -97,6 +105,7 @@ All guides live under [`docs/`](docs/), grouped by topic. New to the project? St
 
 **Architecture & design** — [`docs/architecture/`](docs/architecture/)
 
+- **[Tech stack](docs/architecture/tech-stack.md)** — the full stack (backend, frontend, data, auth, testing, hosting, CI/CD) with a one-line explanation of what each technology does and why it's used.
 - **[Database portability](docs/architecture/database-portability.md)** — keeping behavior identical across relational providers (SQLite / SQL Server / PostgreSQL): the provider switch, collation & cascade gotchas, multi-provider CI, and what a non-relational port (Cosmos / MongoDB / DynamoDB) would actually take.
 - **[Onion architecture diagram](docs/architecture/onion-architecture.svg)** — the layered dependency diagram used above.
 - **[Architecture & practices assessment](docs/architecture/assessment.md)** — an evidence-based review of how well the project adheres to Clean Architecture, SOLID, design patterns, and CI/CD best practices, with graded verdicts and a prioritized improvement backlog.
