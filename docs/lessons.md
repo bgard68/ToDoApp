@@ -113,6 +113,30 @@ Making the repo public does **not** expose your Actions secrets — provided you
 - **On error, reload *before* setting the error message.** `reload()` calls `setError('')` internally, so if you set the error first and reload after, the reload wipes your message. Order matters: `await reload(); setError(err.message);` — otherwise the user never sees why the action failed. (This is exactly the bug the `useTodos` "reverts by reloading when a move fails" test now guards.)
 - **`VITE_*` env vars are build-time**, so anything the SPA needs from config (`VITE_API_URL`, `VITE_GOOGLE_CLIENT_ID`) must be set as GitHub **repository Variables** and baked in at build — see the production-500 triage above for how a wrong `VITE_API_URL` shows up.
 
+## Mobile drag-and-drop — the native HTML5 DnD API is touch-blind
+
+**Symptom:** dragging a card between lanes works fine in a desktop browser but does nothing on a phone browser — the cards can't be picked up at all.
+
+**Root cause:** the board was built entirely on the **native HTML5 Drag and Drop API** — `draggable` cards with `onDragStart` + `e.dataTransfer`, and `onDrop` lanes — with no touch fallback. Those `dragstart` / `dragover` / `drop` events are **mouse-only**; mobile browsers don't synthesize them from touch gestures, so on a phone nothing fires. It's a known limitation of the API, not a device or deploy problem.
+
+**Options considered:**
+
+1. **Switch to a touch-aware drag library** (`@dnd-kit`, or `react-dnd` with a touch backend). Built on Pointer Events, so real drag-and-drop works with mouse, touch, *and* keyboard, and it's accessible. The proper long-term fix, but a larger rewrite of the board's drag wiring plus a new dependency.
+2. **Add a tap-to-move control** — a small button on each card that opens the other lanes as tap targets and calls the existing `moveCard(id, status)`. Works on touch and mouse, tiny change, no new dependency. **[chosen]**
+3. **A touch polyfill** (`mobile-drag-drop`) that shims HTML5 DnD onto touch events. Smallest code change, but janky and less reliable.
+
+**Decision — option 2 (tap-to-move), because:**
+
+- It's the smallest, lowest-risk change: two component files, no new dependency, `package.json` untouched.
+- It **reuses `moveCard()`**, so a tap-move keeps the same optimistic update + concurrency handling as a drag — one code path for every device and every method.
+- It works **identically on phone and desktop**, because the control is a plain button and a button's `click` fires the same on a finger tap as a mouse click — which is exactly why it sidesteps the mouse-only DnD limitation.
+- Dragging on a small screen is fiddly even when it works, so tap-to-pick-a-lane is arguably *better* mobile UX than real drag.
+- Native drag on desktop is left untouched, so desktop users get the tap control *in addition to* dragging.
+
+**Implementation:** `TaskCard.jsx` gained a ⇄ "move" button that reveals the other lanes (excluding the card's current one, each calling `onMove(todo.id, status)`); `Lane.jsx` passes `onMove={onDropCard}` (i.e. `moveCard`) down to each card. No change needed in `KanbanBoard`.
+
+**Trade-off accepted:** actual *dragging* still doesn't work on touch — only the tap control does. If true drag-on-touch is ever wanted, revisit option 1 (`@dnd-kit`).
+
 ## The real find — concurrent refresh signed users out everywhere
 
 This was the subtle one, and worth its own note because it sits at the seam between the backend's security hardening and the frontend's concurrency.

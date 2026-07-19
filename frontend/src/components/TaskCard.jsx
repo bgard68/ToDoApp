@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { PRIORITIES, DEFAULT_CATEGORY_COLOR } from '../lib/constants.js';
+import { PRIORITIES, DEFAULT_CATEGORY_COLOR, STATUSES } from '../lib/constants.js';
 import { findCategory } from '../lib/categories.js';
 import { tint } from '../lib/colors.js';
 
@@ -11,13 +11,15 @@ function formatDate(value) {
 }
 
 /**
- * A single task rendered as a colored post-it note. Draggable between lanes;
+ * A single task rendered as a colored post-it note. Draggable between lanes on desktop,
+ * or moved via the tap "move" (⇄) control on touch devices;
  * shows a check mark when it's in the Done lane. The note's color comes from its
  * category (resolved from the fetched list), tinted toward white for legibility.
  */
-export default function TaskCard({ todo, categories, onUpdate, onDelete, onDragStart, onDragEnd }) {
+export default function TaskCard({ todo, categories, onUpdate, onDelete, onMove, onDragStart, onDragEnd }) {
   const [editing, setEditing] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [moving, setMoving] = useState(false);
   const [draft, setDraft] = useState({
     title: todo.title,
     description: todo.description || '',
@@ -128,9 +130,25 @@ export default function TaskCard({ todo, categories, onUpdate, onDelete, onDragS
           </span>
         )}
         <span className="note__spacer" />
+        <button className="note__icon" onClick={() => setMoving((v) => !v)} aria-label="Move to another lane" title="Move" aria-expanded={moving}>⇄</button>
         <button className="note__icon" onClick={() => setEditing(true)} aria-label="Edit" title="Edit">✎</button>
         <button className="note__icon note__icon--danger" onClick={() => onDelete(todo.id)} aria-label="Delete" title="Delete">✕</button>
       </div>
+
+      {moving && (
+        <div className="note__move" role="group" aria-label="Move this task to" style={{ display: 'flex', flexWrap: 'wrap', gap: '0.375rem', marginTop: '0.5rem' }}>
+          {STATUSES.filter((s) => s.value !== todo.status).map((s) => (
+            <button
+              key={s.value}
+              type="button"
+              className="btn btn--sm"
+              onClick={() => { onMove(todo.id, s.value); setMoving(false); }}
+            >
+              → {s.label}
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

@@ -42,6 +42,7 @@ export default function Lane({ status, label, todos, categories, onDropCard, onD
               categories={categories}
               onUpdate={onUpdate}
               onDelete={onDelete}
+              onMove={onDropCard}
               onDragStart={onDragStart}
               onDragEnd={onDragEnd}
             />
