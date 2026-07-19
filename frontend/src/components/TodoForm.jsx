@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { PRIORITIES } from '../lib/constants.js';
+import DateField from './DateField.jsx';
 
 const empty = { title: '', description: '', priority: 1, categoryId: '', dueDate: '' };
 
@@ -72,7 +73,7 @@ export default function TodoForm({ onCreate, categories }) {
             <option key={p.value} value={p.value}>{p.label}</option>
           ))}
         </select>
-        <input type="date" value={form.dueDate} onChange={update('dueDate')} aria-label="Due date" />
+        <DateField value={form.dueDate} onChange={(v) => setForm((f) => ({ ...f, dueDate: v }))} ariaLabel="Due date" />
       </div>
 
       {error && <p className="todo-form__error">{error}</p>}

@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { PRIORITIES, DEFAULT_CATEGORY_COLOR, STATUSES } from '../lib/constants.js';
 import { findCategory } from '../lib/categories.js';
 import { tint } from '../lib/colors.js';
+import DateField from './DateField.jsx';
 
 const priorityClass = { 0: 'low', 1: 'medium', 2: 'high' };
 
@@ -91,11 +92,10 @@ export default function TaskCard({ todo, categories, onUpdate, onDelete, onMove,
               <option key={p.value} value={p.value}>{p.label}</option>
             ))}
           </select>
-          <input
-            type="date"
+          <DateField
             value={draft.dueDate}
-            onChange={(e) => setDraft({ ...draft, dueDate: e.target.value })}
-            aria-label="Edit due date"
+            onChange={(v) => setDraft({ ...draft, dueDate: v })}
+            ariaLabel="Edit due date"
           />
         </div>
         <div className="note__actions">

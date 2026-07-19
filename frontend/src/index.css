@@ -105,6 +105,23 @@ input[type='date']:focus::-webkit-calendar-picker-indicator { opacity: 1; }
 .auth__card { position: relative; }
 .auth__theme { position: absolute; top: 14px; right: 14px; }
 
+/* Masked date field: typed MM/DD/YYYY with an in-bar calendar button */
+.date-field { position: relative; }
+.date-mask { width: 100%; padding: 10px 40px 10px 12px; border: 1px solid var(--border);
+  border-radius: 8px; background: var(--bg); color: var(--text); font-size: 0.95rem;
+  outline: none; letter-spacing: 0.02em; }
+.date-mask:focus { border-color: var(--primary); }
+.cal-btn { position: absolute; right: 4px; top: 50%; transform: translateY(-50%);
+  width: 30px; height: 30px; display: flex; align-items: center; justify-content: center;
+  background: none; border: none; cursor: pointer; color: var(--muted); border-radius: 7px;
+  transition: background 0.12s, color 0.12s; }
+.cal-btn:hover { color: var(--text); background: rgba(99, 102, 241, 0.14); }
+.cal-btn:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--primary); }
+.cal-btn svg { width: 18px; height: 18px; display: block; }
+.date-native { position: absolute; inset: 0; opacity: 0; pointer-events: none; }
+.todo-form__row--meta > .date-field { flex: 0 1 auto; min-width: 160px; }
+.note__edit-meta > .date-field { flex: 1; min-width: 0; }
+
 /* Password show/hide toggle (eye icon inside the field) */
 .pw-field { position: relative; }
 .pw-field input { width: 100%; padding-right: 46px; }
@@ -312,7 +329,8 @@ input[type='date']:focus::-webkit-calendar-picker-indicator { opacity: 1; }
   /* Add-task form: description takes its own row; meta controls fill the width. */
   .todo-form__desc { min-width: 100%; }
   .todo-form__row--meta > select,
-  .todo-form__row--meta > input[type='date'] { flex: 1 1 44%; }
+  .todo-form__row--meta > input[type='date'],
+  .todo-form__row--meta > .date-field { flex: 1 1 44%; }
 
   /* Filter row wraps cleanly. */
   .board-filter { flex-wrap: wrap; }
