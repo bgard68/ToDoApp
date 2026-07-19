@@ -106,6 +106,7 @@ All guides live under [`docs/`](docs/), grouped by topic. New to the project? St
 **Architecture & design** — [`docs/architecture/`](docs/architecture/)
 
 - **[Tech stack](docs/architecture/tech-stack.md)** — the full stack (backend, frontend, data, auth, testing, hosting, CI/CD) with a one-line explanation of what each technology does and why it's used.
+- **[Request flow: login → board](docs/architecture/request-flow.md)** — a worked, end-to-end trace of one real path through the app (sign-in, the JWT + security-stamp check, and the user-scoped query that populates the board), with a sequence diagram and the exact files/handlers involved.
 - **[Database portability](docs/architecture/database-portability.md)** — keeping behavior identical across relational providers (SQLite / SQL Server / PostgreSQL): the provider switch, collation & cascade gotchas, multi-provider CI, and what a non-relational port (Cosmos / MongoDB / DynamoDB) would actually take.
 - **[Onion architecture diagram](docs/architecture/onion-architecture.svg)** — the layered dependency diagram used above.
 - **[Architecture & practices assessment](docs/architecture/assessment.md)** — an evidence-based review of how well the project adheres to Clean Architecture, SOLID, design patterns, and CI/CD best practices, with graded verdicts and a prioritized improvement backlog.
