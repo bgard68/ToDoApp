@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { AuthApi, getRefreshToken, setOnUnauthorized } from './lib/apiClient.js';
 import AuthForm from './components/AuthForm.jsx';
 import KanbanBoard from './components/KanbanBoard.jsx';
+import ThemeToggle from './components/ThemeToggle.jsx';
 
 export default function App() {
   const [user, setUser] = useState(null);
@@ -77,6 +78,7 @@ export default function App() {
           <p className="app__subtitle">Signed in as {user.email}</p>
         </div>
         <div className="app__account">
+          <ThemeToggle />
           <button className="btn btn--ghost" onClick={handleRevokeAll} title="Revoke all sessions everywhere">
             Sign out everywhere
           </button>

@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import GoogleButton from './GoogleButton.jsx';
+import ThemeToggle from './ThemeToggle.jsx';
 
 export default function AuthForm({ onLogin, onRegister, onGoogle }) {
   const [mode, setMode] = useState('login'); // 'login' | 'register'
@@ -50,6 +51,7 @@ export default function AuthForm({ onLogin, onRegister, onGoogle }) {
   return (
     <div className="auth">
       <div className="card auth__card">
+        <div className="auth__theme"><ThemeToggle /></div>
         <h1 className="auth__title">{isRegister ? 'Create account' : 'Sign in'}</h1>
         <p className="auth__subtitle">
           {isRegister ? 'Register to start your list.' : 'Welcome back.'}
