@@ -27,6 +27,7 @@ export default function GoogleButton({ onCredential }) {
   const containerRef = useRef(null);
   const callbackRef = useRef(onCredential);
   callbackRef.current = onCredential;
+  const widthRef = useRef(0); // stable button width, so theme re-renders don't jitter its size
 
   useEffect(() => {
     if (!CLIENT_ID) return;
@@ -38,11 +39,16 @@ export default function GoogleButton({ onCredential }) {
     function renderButton() {
       const el = containerRef.current;
       if (!window.google?.accounts?.id || !el) return;
+      // Measure a STABLE width from the surrounding box (not the button's own
+      // container, which is empty mid-redraw) and cache it, so re-rendering on a
+      // theme toggle always produces the same size (200–400) instead of jittering.
+      const box =
+        el.parentElement?.getBoundingClientRect().width ||
+        el.getBoundingClientRect().width ||
+        0;
+      if (box) widthRef.current = Math.max(240, Math.min(400, Math.round(box)));
+      const width = widthRef.current || 320;
       el.innerHTML = '';
-      // Fit the button to its container (Google requires a pixel width, 200–400),
-      // so it doesn't clip on narrow phone screens.
-      const available = el.offsetWidth || 320;
-      const width = Math.max(240, Math.min(400, available));
       window.google.accounts.id.renderButton(el, {
         theme: isDarkTheme() ? 'filled_black' : 'outline',
         size: 'large',
