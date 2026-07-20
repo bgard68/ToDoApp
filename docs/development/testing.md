@@ -19,6 +19,7 @@ the companion [CI/CD pipeline testing guide](../deployment/pipeline-testing.md).
 | Frontend | `frontend/src/**/*.test.{js,jsx}` | **Vitest** + React Testing Library | Pure helpers, a component, and the `useTodos` hook (optimistic move + error handling). |
 | API — unit | `tests/TodoApp.UnitTests` | **xUnit** + FluentAssertions | Domain invariants and CQRS handlers (ownership, concurrency, auth/refresh) against real EF Core over in-memory SQLite. |
 | API — integration | `tests/TodoApp.IntegrationTests` | **xUnit** + `WebApplicationFactory<Program>` | The whole API in-process, hit over HTTP end-to-end (register → authorize → call endpoints). |
+| API — smoke | `scripts/todoapp-smoketest.ps1` | **PowerShell** (`Invoke-WebRequest`) | Every endpoint over HTTP against a *running* instance — a fast health / regression check (see §3.4). |
 
 The guiding rule on both sides: **tests use the real thing wherever it's cheap.** The API tests run
 against a genuine EF Core context (in-memory SQLite, not the EF in-memory provider) so query
@@ -304,6 +305,45 @@ dotnet test                                   # everything
 dotnet test tests/TodoApp.UnitTests           # unit only
 dotnet test tests/TodoApp.IntegrationTests    # integration only
 ```
+
+### 3.4 End-to-end smoke test — `scripts/todoapp-smoketest.ps1`
+
+A PowerShell script that hits **every** API endpoint over HTTP against a *running* instance and prints a
+pass/fail report. It's the fastest way to confirm the whole API behaves end to end — auth, the JWT
+revocation check, category and todo CRUD, optimistic-concurrency conflicts, the delete-category cascade,
+and the session-lifecycle flows (refresh rotation + reuse detection, logout, revoke-all) — without
+clicking through Swagger by hand.
+
+**Run it** — start the API, then run the script in a second terminal:
+
+```powershell
+dotnet run --project src\TodoApp.WebApi                                   # terminal 1 - leave running
+powershell -ExecutionPolicy Bypass -File .\scripts\todoapp-smoketest.ps1 # terminal 2
+```
+
+Point it at another host with `-BaseUrl` (default `http://localhost:5080`). It registers throwaway users
+each run, so it needs no DB setup and doesn't touch the seeded demo user. Google sign-in is skipped (it
+needs a real Google ID token — test that from the SPA).
+
+**Reading the results — green does not mean "200".** Each line is a `[PASS]` (green) or `[FAIL]` (red),
+and the goal is **all green, not all 200**. You don't need to check each line individually: many checks
+deliberately assert an **error** status and pass green when they receive it, because returning the right
+error *is* the correct behavior.
+
+| The check… | expects | why it's correct |
+| ---------- | ------- | ---------------- |
+| request without a token | **401** | protected endpoints must reject anonymous callers |
+| duplicate category name | **409** | the unique-name rule must conflict |
+| invalid color / bad input | **400** | validation must reject it |
+| delete / logout / revoke-all | **204** | success with no body |
+| stale concurrency token | **409** | lost-update protection must fire |
+| replayed (rotated) refresh token | **401** | reuse detection must reject it |
+
+So a run showing several `401`s, a `400`, a couple of `409`s, and some `204`s **alongside** the `200`s is
+a **healthy** run — each got the status its check expected, so each is green. Only a **red `[FAIL]`**
+(status other than expected) needs attention; the script prints the response body under a failing line to
+help diagnose it, and the final `Result: N passed, M failed` line (`0 failed` = clean) is your at-a-glance
+verdict. This is also the natural thing to wire into CI as a post-deploy check.
 
 ---
 

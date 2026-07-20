@@ -114,6 +114,7 @@ All guides live under [`docs/`](docs/), grouped by topic. New to the project? St
 **Development** — [`docs/development/`](docs/development/)
 
 - **[Testing guide](docs/development/testing.md)** — how the frontend (Vitest + React Testing Library) and API (xUnit unit + `WebApplicationFactory` integration) test suites are set up, **step-by-step instructions for adding a new test** on each side, the from-scratch Vitest/RTL standup (including where Babel fits), and the deploy gate that blocks a release when tests fail.
+- **[API smoke test](scripts/README.md)** — `scripts/todoapp-smoketest.ps1`: an end-to-end PowerShell check that hits every endpoint against a running instance, how to run it, and why a green run is a mix of expected status codes (not all 200).
 
 **Reference**
 
@@ -412,6 +413,22 @@ make token-expiry and audit-timestamp behavior deterministic.
 
 - **Concurrency** — updating a todo with a stale `ConcurrencyToken` returns `409`
   (unit + integration), and with the current token succeeds and rotates the token.
+
+### End-to-end smoke test
+
+Beyond the automated suites, **`scripts/todoapp-smoketest.ps1`** hits **every** API endpoint over HTTP
+against a running instance and prints a pass/fail report — a fast health check after a change, or a
+post-deploy smoke test. Start the API, then run it in a second terminal:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\todoapp-smoketest.ps1
+```
+
+**Reading the results: green means "got the expected status," not "returned 200."** Several checks
+deliberately assert an error code — `401` (no token), `400` (bad input), `409` (duplicate name / stale
+concurrency token), `204` (delete / logout / revoke-all) — and show green when they receive it. You don't
+need to read every line; only a red `[FAIL]` needs attention. Full details, including the per-check table,
+are in the [testing guide](docs/development/testing.md) (§3.4), and in [`scripts/README.md`](scripts/README.md).
 
 ## Database & migrations
 
