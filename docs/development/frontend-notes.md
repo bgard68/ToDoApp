@@ -51,3 +51,68 @@ database, and config gotchas, see **[Lessons learned](../lessons.md)**.
 - It takes and emits a plain `yyyy-mm-dd` string, so the surrounding form/save logic is unchanged.
 
 **Lesson:** native `<input type="date">` is great for free validation and the calendar, but its segmented editing can't be made to behave like free text. When continuous typed editing matters, own the input as a masked text field (and re-add the calendar via `showPicker()`) rather than fighting the native control. Used in `TodoForm` and `TaskCard`.
+
+## Dark/light mode — mobile browsers force-darken a light-only page
+
+**Symptom:** on a phone browser, choosing **light** mode on the login page didn't produce a
+light page — it stayed dark. Desktop browsers were fine, and the in-app toggle worked there.
+
+**Root cause:** the app declared **`color-scheme: light`** (light-only) on `:root`. Chrome for
+Android's *Auto dark theme* and Samsung Internet's dark mode treat a light-only page as "not
+dark-aware" and **algorithmically invert it at paint time** — on top of the app's own theme — so
+the app's "light" choice could never win. The signal those engines look for (the `color-scheme`
+value, and a `<meta name="color-scheme">`) was missing or wrong: the only `color-scheme` lived in
+`index.css`, which is imported by JS (`main.jsx`) and so arrives *after* first paint, and it said
+`light`. The toggle logic itself was never at fault.
+
+**How it was confirmed:** reproduced in headless Chromium at a 390px phone viewport with
+`prefers-color-scheme: dark` and Chrome's real auto-dark emulation
+(`Emulation.setAutoDarkModeOverride`). With auto-dark **on**, tapping "light" rendered dark pixels
+(`rgb(34,35,36)`) even though the computed CSS background was the light value (`rgb(244,245,247)`) —
+the inversion happens in the compositor, after computed style. With auto-dark **off**, light
+rendered correctly, proving the toggle was fine. A first attempt at a fix (a `<meta name="color-scheme">`
+alone) did **not** work, because the CSS `:root { color-scheme: light }` overrides the meta — a good
+reminder to reproduce before shipping a fix.
+
+![Login page at a phone viewport, OS dark mode + browser auto-dark on. Before: tapping "light" stays dark. After: light renders.](images/login-dark-mode-before-after.png)
+
+**Fix:** declare the page **dark-capable** so the browser stops force-darkening it:
+
+- `src/index.css` — change the base `:root` from `color-scheme: light` to **`color-scheme: light dark`**. This is the load-bearing change; it tells the browser the page manages its own dark mode.
+- `index.html` — add **`<meta name="color-scheme" content="light dark" />`** in `<head>`, so the signal exists *before* the JS-injected stylesheet loads (also reduces the load flash).
+
+The toggle logic, the dark palette, and the system-dark media query were unchanged.
+
+**Trade-off accepted:** with `color-scheme: light dark`, if the OS is in dark mode but the user
+picks the app's *light* theme, native UA-drawn controls (scrollbars, autofill highlight, caret, the
+date picker) may follow the system's dark preference. The app's own surfaces (background, card,
+text) stay light because they come from CSS custom properties. Negligible on the login page; only
+worth watching on the board's date field.
+
+**Lesson:** a page that supports both themes must advertise `color-scheme: light dark` (and must not
+be overridden to light-only anywhere), or mobile auto-dark will invert it regardless of the app's
+own toggle. A `<meta name="color-scheme">` won't help on its own if a CSS `:root { color-scheme: light }`
+overrides it — the CSS value wins.
+
+## Google sign-in button didn't follow the app theme
+
+**Symptom:** in dark mode the "Sign in with Google" button stayed a bright **white** pill, clashing
+with the dark card.
+
+**Root cause:** the button is a **Google-rendered widget** (Google Identity Services). The app's CSS
+variables can't restyle it — the only lever is the GIS `theme` option, which was **hardcoded to
+`outline`** (the light variant) and read once at mount, so it never tracked the app theme. GIS
+offers `outline`, `filled_blue`, and `filled_black`; none of them follow `prefers-color-scheme`.
+
+**Fix (contained to `GoogleButton.jsx`):**
+
+- Derive the theme from the current mode — `theme: dark ? 'filled_black' : 'outline'` — computing
+  `dark` the same way `ThemeToggle` does (`<html data-theme>`, falling back to `matchMedia`).
+- Because GIS won't restyle an already-rendered button, a **`MutationObserver`** on
+  `document.documentElement`'s `data-theme` clears the container and calls `renderButton` again when
+  the theme flips (plus a `matchMedia` listener for the system-preference case). Clear the container
+  first, or you get a stacked/duplicate button.
+
+**Lesson:** third-party rendered widgets don't inherit your theme via CSS — pass their own theme
+option and re-render them when your theme changes. (Verifiable only with a real `VITE_GOOGLE_CLIENT_ID`
+against a running app, since the button is Google-rendered.)

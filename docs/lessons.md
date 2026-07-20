@@ -21,6 +21,7 @@ The ones that cost the most time — jump to the section for the full story:
 - **Serverless Azure SQL times out on the first request** → [Database](#database-sqlite-vs-azure-sql): auto-pause cold start (errors -2 / 40613) — retry, and keep seeding off the startup path.
 - **`<name>.azurewebsites.net` won't resolve** → [Networking / hostnames](#networking--hostnames): use the Overview page's regional Default domain.
 - **Drag-and-drop is dead on mobile** → [frontend notes](development/frontend-notes.md): the native HTML5 DnD API is touch-blind.
+- **Light mode is ignored in a phone browser** → [frontend notes](development/frontend-notes.md#darklight-mode--mobile-browsers-force-darken-a-light-only-page): mobile auto-dark force-darkens a light-only page (`color-scheme: light` → `light dark`).
 ## Database (SQLite vs Azure SQL)
 
 - Behavior differs between SQLite and Azure SQL Server — code that runs locally can fail in the cloud.

@@ -128,7 +128,7 @@ with the **[Azure guide](docs/deployment/azure.md)**.
 - **[Local development](docs/development/local-dev.md)** — build and run the app, supply the JWT signing key, call the API by hand (Swagger / curl / PowerShell), the `401` troubleshooting playbook, and the local database story.
 - **[Testing guide](docs/development/testing.md)** — how the frontend (Vitest + RTL) and API (xUnit unit + `WebApplicationFactory` integration) suites are set up, step-by-step instructions for adding a new test, and the deploy gate that blocks a release when tests fail.
 - **[API smoke test](scripts/README.md)** — `scripts/todoapp-smoketest.ps1`: an end-to-end PowerShell check that hits every endpoint against a running instance, how to run it, and why a green run is a mix of expected status codes (not all 200).
-- **[Frontend & UI notes](docs/development/frontend-notes.md)** — app-side engineering lessons: optimistic UI and the reload-order bug, the touch-blind HTML5 drag-and-drop and the tap-to-move fix, and the masked `DateField` that restores cross-segment editing.
+- **[Frontend & UI notes](docs/development/frontend-notes.md)** — app-side engineering lessons: optimistic UI and the reload-order bug, the touch-blind HTML5 drag-and-drop, the masked `DateField`, the mobile **dark-mode force-dark** fix (`color-scheme: light dark`, with before/after screenshots), and theming the Google sign-in button.
 
 **Reference**
 
