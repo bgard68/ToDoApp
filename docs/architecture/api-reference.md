@@ -94,6 +94,84 @@ curl http://localhost:5080/api/todos \
 
 In Swagger UI, click **Authorize** and paste the access token to call protected endpoints.
 
+## How the endpoints are wired
+
+The routes above aren't declared in `Program.cs`. Each resource group lives in its own
+static class under `src/TodoApp.WebApi/Endpoints/` — `AuthEndpoints`, `CategoryEndpoints`,
+`TodoEndpoints` — exposed as an extension method on `IEndpointRouteBuilder`. `Program.cs`
+just composes them, in order, after the auth middleware:
+
+```csharp
+app.UseAuthentication();
+app.UseAuthorization();
+
+app.MapAuthEndpoints();
+app.MapCategoryEndpoints();
+app.MapTodoEndpoints();
+
+app.MapGet("/", () => Results.Redirect("/swagger"));   // root → Swagger UI
+```
+
+Keeping the mapping out of `Program.cs` means each resource's routes are self-contained and
+the startup file stays a readable table of contents. The extension methods return the builder,
+so they read fluently and could be chained.
+
+**A group per resource.** Each method opens with `MapGroup`, which fixes the base path once and
+lets every route hang off it. Shared metadata is applied to the group so it doesn't repeat per
+route — `WithTags` sets the Swagger section, and for the fully-protected resources authorization
+is applied at the **group** level:
+
+```csharp
+var group = app.MapGroup("/api/todos")
+    .WithTags("Todos")
+    .RequireAuthorization();        // every route in this group needs a bearer token
+
+group.MapGet("/{id:int}", /* ... */)
+     .WithName("GetTodoById")
+     .Produces<TodoItemDto>()
+     .Produces(StatusCodes.Status404NotFound);
+```
+
+`Todos` and `Categories` are protected this way — one `.RequireAuthorization()` on the group
+covers all their routes. `Auth` is the exception: its group carries only `.WithTags("Auth")`, and
+authorization is set **per route** because the group is mixed — `.AllowAnonymous()` on
+`register`, `login`, `refresh`, and `google`, and `.RequireAuthorization()` on `logout`,
+`revoke-all`, and `me`.
+
+**Thin handlers.** Every route delegates straight to MediatR — the lambda injects `ISender`,
+sends a command or query, and maps the result to an HTTP status. There's no business logic in the
+web layer:
+
+```csharp
+group.MapPost("/", async (CreateTodoCommand command, ISender sender) =>
+{
+    var created = await sender.Send(command);
+    return Results.CreatedAtRoute("GetTodoById", new { id = created.Id }, created);
+})
+.WithName("CreateTodo")
+.Produces<TodoItemDto>(StatusCodes.Status201Created)
+.ProducesValidationProblem();
+```
+
+A few conventions are worth calling out:
+
+- **Route constraints do the first validation.** `{id:int}` means a non-numeric id never
+  reaches a handler — it 404s at routing time.
+- **The route id is never trusted from the body.** Updates bind a dedicated request record
+  (`UpdateTodoRequest`, `StatusRequest`, `CategoryRequest`) and the handler builds the command
+  from the **route** `id` plus the body fields, so a mismatched id in the payload can't act on a
+  different resource.
+- **`WithName` is load-bearing, not decoration.** Named routes give `Results.CreatedAtRoute(...)`
+  a target for the `Location` header (see `CreateTodo` → `GetTodoById` above) and set a stable
+  Swagger `operationId`.
+- **`Produces` / `ProducesValidationProblem` describe the contract.** They don't change behavior —
+  they tell Swagger/OpenAPI which status codes and payload shapes each route can return, which is
+  why the generated docs show `201`/`404`/`409`/validation responses accurately.
+
+So the shape of any endpoint is the same: `MapGroup` for the path and shared policy, a `Map{Verb}`
+per route with a constraint where an id is involved, a thin `ISender.Send` handler returning a
+`Results.*`, and fluent metadata (`WithName`, `Produces`) that feeds routing and Swagger.
+
 ## Concurrency & conflicts
 
 Two kinds of write conflict are handled explicitly, both returning **409**:
