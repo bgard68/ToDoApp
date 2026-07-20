@@ -1,5 +1,5 @@
 <#
-  TaskBoard API smoke test — exercises the Dapper backend end to end against a locally
+  TaskBoard API smoke test — exercises the api backend end to end against a locally
   running instance. Covers every Swagger endpoint except Google sign-in (which needs a real
   Google ID token and is noted as manual at the end).
 
