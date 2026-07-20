@@ -8,7 +8,7 @@ from-scratch standup of the frontend test stack (Vitest + React Testing Library,
 JSX is transformed via Babel) and the **deploy gate** that stops a release when tests fail.
 
 For how the CI pipeline catches build/publish failures and how to test the pipeline itself, see
-the companion [CI/CD pipeline testing guide](../deployment/pipeline-testing.md).
+the companion [CI/CD pipeline testing guide](../deployment/pipeline.md).
 
 ---
 
@@ -308,42 +308,22 @@ dotnet test tests/TodoApp.IntegrationTests    # integration only
 
 ### 3.4 End-to-end smoke test — `scripts/todoapp-smoketest.ps1`
 
-A PowerShell script that hits **every** API endpoint over HTTP against a *running* instance and prints a
-pass/fail report. It's the fastest way to confirm the whole API behaves end to end — auth, the JWT
-revocation check, category and todo CRUD, optimistic-concurrency conflicts, the delete-category cascade,
-and the session-lifecycle flows (refresh rotation + reuse detection, logout, revoke-all) — without
-clicking through Swagger by hand.
-
-**Run it** — start the API, then run the script in a second terminal:
+Beyond the automated suites, a PowerShell script hits **every** API endpoint over HTTP against a
+*running* instance and prints a pass/fail report — the fastest way to confirm the whole API behaves
+end to end (auth, the JWT revocation check, category and todo CRUD, optimistic-concurrency conflicts,
+the delete-category cascade, and the session-lifecycle flows). Start the API, then run it in a second
+terminal:
 
 ```powershell
 dotnet run --project src\TodoApp.WebApi                                   # terminal 1 - leave running
 powershell -ExecutionPolicy Bypass -File .\scripts\todoapp-smoketest.ps1 # terminal 2
 ```
 
-Point it at another host with `-BaseUrl` (default `http://localhost:5080`). It registers throwaway users
-each run, so it needs no DB setup and doesn't touch the seeded demo user. Google sign-in is skipped (it
-needs a real Google ID token — test that from the SPA).
-
-**Reading the results — green does not mean "200".** Each line is a `[PASS]` (green) or `[FAIL]` (red),
-and the goal is **all green, not all 200**. You don't need to check each line individually: many checks
-deliberately assert an **error** status and pass green when they receive it, because returning the right
-error *is* the correct behavior.
-
-| The check… | expects | why it's correct |
-| ---------- | ------- | ---------------- |
-| request without a token | **401** | protected endpoints must reject anonymous callers |
-| duplicate category name | **409** | the unique-name rule must conflict |
-| invalid color / bad input | **400** | validation must reject it |
-| delete / logout / revoke-all | **204** | success with no body |
-| stale concurrency token | **409** | lost-update protection must fire |
-| replayed (rotated) refresh token | **401** | reuse detection must reject it |
-
-So a run showing several `401`s, a `400`, a couple of `409`s, and some `204`s **alongside** the `200`s is
-a **healthy** run — each got the status its check expected, so each is green. Only a **red `[FAIL]`**
-(status other than expected) needs attention; the script prints the response body under a failing line to
-help diagnose it, and the final `Result: N passed, M failed` line (`0 failed` = clean) is your at-a-glance
-verdict. This is also the natural thing to wire into CI as a post-deploy check.
+**Green means "got the expected status," not "returned 200."** Several checks deliberately assert an
+error code (`401`/`400`/`409`/`204`) and show green when they receive it, so a healthy run is a mix of
+statuses; only a red `[FAIL]` needs attention. The full per-check table, `-BaseUrl` usage, and notes
+live in **[`scripts/README.md`](../../scripts/README.md)** — the canonical reference for the script.
+It's also the natural thing to wire into CI as a post-deploy check.
 
 ---
 
@@ -367,7 +347,7 @@ follows **never runs**. A broken test can't reach production.
 **API.** `api-ci-cd.yml` runs `dotnet test` between build and publish; a failing test returns a
 non-zero exit and stops the job before the deploy for the same reason. The pipeline's fail-fast and
 publish-guard behavior is documented in detail in the
-[CI/CD pipeline testing guide](../deployment/pipeline-testing.md).
+[CI/CD pipeline testing guide](../deployment/pipeline.md).
 
 The net guarantee across both apps: **if a test fails, nothing ships, and GitHub emails the person
 who pushed the commit.**
@@ -416,6 +396,6 @@ committed — it's rebuilt from these two files and stays in `.gitignore`.
 
 ---
 
-_See also: [CI/CD pipeline testing](../deployment/pipeline-testing.md) · [Architecture & practices assessment](../architecture/assessment.md) · [Lessons learned](../lessons.md)._
+_See also: [CI/CD pipeline testing](../deployment/pipeline.md) · [Architecture & practices assessment](../architecture/assessment.md) · [Lessons learned](../lessons.md)._
 
 > **← Back to the main [README](../../README.md).**

@@ -1,7 +1,7 @@
-# Setup, Build & Deployment Guide
+# Deployment overview
 
 This guide covers everything from a clean checkout to a running production deployment.
-For a feature overview and the API reference, see [README.md](../../README.md).
+For a feature overview see the [README](../../README.md); for the HTTP endpoints and auth model see the [API reference](../architecture/api-reference.md).
 
 - [1. Prerequisites](#1-prerequisites)
 - [2. First-time setup](#2-first-time-setup)
@@ -42,7 +42,7 @@ dotnet user-secrets init --project src/TodoApp.WebApi
 dotnet user-secrets set "Jwt:Key" "$(openssl rand -base64 48)" --project src/TodoApp.WebApi
 ```
 
-Optional — enable Google sign-in by setting the client ID in both places (see README):
+Optional — enable Google sign-in by setting the client ID in both places (full setup in the [Google sign-in guide](google-signin.md)):
 
 ```bash
 dotnet user-secrets set "Authentication:Google:ClientId" "<web-client-id>" --project src/TodoApp.WebApi
@@ -209,7 +209,7 @@ published `--self-contained`.
 ## 9. Deploy — Azure App Service
 
 A full, step-by-step Azure walkthrough — API on **App Service**, React on **Static Web
-Apps**, plus **Google sign-in** and **Key Vault** secrets — lives in **[AZURE.md](azure.md)**.
+Apps**, plus **Google sign-in** and **Key Vault** secrets — lives in the **[Azure guide](azure.md)**.
 The short version:
 
 ```bash

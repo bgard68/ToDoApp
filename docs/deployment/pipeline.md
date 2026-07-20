@@ -52,7 +52,7 @@ and you're told — nothing ships.**
 
 There's one failure mode GitHub can't catch on its own: a publish that **exits successfully but
 produces nothing useful** (a "hollow" publish). This bit us during the original deployment
-(see the [Key Vault deployment troubleshooting log](keyvault-deployment-troubleshooting.md)), where a
+(see the [Key Vault deployment troubleshooting log](troubleshooting-log.md)), where a
 mis-scoped publish put the wrong files in `wwwroot` and the app served no routes.
 
 So the pipeline adds an explicit guard right after the publish step:
@@ -141,6 +141,6 @@ from section 2 is guaranteed.)
 
 ---
 
-_See also: [Testing guide (frontend + API)](../development/testing.md) · [Azure setup runbook](azure-setup.md) · [Azure reference](azure.md) · [Key Vault deployment troubleshooting](keyvault-deployment-troubleshooting.md) · [Lessons learned](../lessons.md) · [Architecture & practices assessment](../architecture/assessment.md)._
+_See also: [Testing guide (frontend + API)](../development/testing.md) · [Azure guide](azure.md) · [Key Vault deployment troubleshooting](troubleshooting-log.md) · [Lessons learned](../lessons.md) · [Architecture & practices assessment](../architecture/assessment.md)._
 
 > **← Back to the main [README](../../README.md).**

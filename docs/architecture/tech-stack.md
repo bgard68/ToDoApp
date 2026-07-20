@@ -78,7 +78,7 @@ See the [testing guide](../development/testing.md) for how the suites are set up
   `frontend-ci-cd.yml` (test-gate → build → deploy the SPA).
 - **OIDC federated identity** (`azure/login`) — deploys to Azure with no long-lived stored credentials.
 - **Deploy gating** — deploys only on push to `main`; PRs build and test but never ship; failing tests
-  or a hollow publish stop the pipeline. See the [CI/CD pipeline testing guide](../deployment/pipeline-testing.md).
+  or a hollow publish stop the pipeline. See the [CI/CD pipeline testing guide](../deployment/pipeline.md).
 
 ## Also in the repo
 
@@ -87,6 +87,6 @@ See the [testing guide](../development/testing.md) for how the suites are set up
 
 ---
 
-_See also: [Architecture & practices assessment](assessment.md) · [Database portability](database-portability.md) · [Testing guide](../development/testing.md) · [Deployment guide](../deployment/deployment.md) · [Lessons learned](../lessons.md)._
+_See also: [Architecture & practices assessment](assessment.md) · [Database portability](database-portability.md) · [Testing guide](../development/testing.md) · [Deployment guide](../deployment/overview.md) · [Lessons learned](../lessons.md)._
 
 > **← Back to the main [README](../../README.md).**

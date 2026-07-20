@@ -192,7 +192,7 @@ server mutations with rendering, so the view owned side effects and was hard to 
 - **A real bug fixed along the way** — concurrent 401s each refreshing the same rotated token and
   tripping the backend's reuse-detection (see [Lessons — "the real find"](../lessons.md#the-real-find--concurrent-refresh-signed-users-out-everywhere)),
   plus the optimistic-UI change that removed the post-move "post back"
-  ([Lessons — Frontend](../lessons.md#frontend-react--vite)).
+  ([Frontend notes](../development/frontend-notes.md#frontend-react--vite)).
 
 **Verification note.** The sandbox couldn't run `vite build` (native rollup binary mismatch under the
 device VM), so the refactor was validated by parsing every changed module with `@babel/parser` and a
@@ -249,6 +249,6 @@ once dependencies were installed locally.
 
 ---
 
-_See also: [Lessons Learned](../lessons.md) · [Key Vault deployment troubleshooting](../deployment/keyvault-deployment-troubleshooting.md) · [Database portability](database-portability.md)._
+_See also: [Lessons Learned](../lessons.md) · [Key Vault deployment troubleshooting](../deployment/troubleshooting-log.md) · [Database portability](database-portability.md)._
 
 > **← Back to the main [README](../../README.md).**
