@@ -54,45 +54,52 @@ database, and config gotchas, see **[Lessons learned](../lessons.md)**.
 
 ## Dark/light mode — mobile browsers force-darken a light-only page
 
-**Symptom:** on a phone browser, choosing **light** mode on the login page didn't produce a
-light page — it stayed dark. Desktop browsers were fine, and the in-app toggle worked there.
+**Symptom:** on a phone browser (Chrome / Samsung Internet), choosing **light** mode didn't produce a
+light page — it flashed light for an instant and snapped back to dark. Desktop browsers, including
+desktop Chrome, were fine, and the in-app toggle worked there.
 
-**Root cause:** the app declared **`color-scheme: light`** (light-only) on `:root`. Chrome for
-Android's *Auto dark theme* and Samsung Internet's dark mode treat a light-only page as "not
-dark-aware" and **algorithmically invert it at paint time** — on top of the app's own theme — so
-the app's "light" choice could never win. The signal those engines look for (the `color-scheme`
-value, and a `<meta name="color-scheme">`) was missing or wrong: the only `color-scheme` lived in
-`index.css`, which is imported by JS (`main.jsx`) and so arrives *after* first paint, and it said
-`light`. The toggle logic itself was never at fault.
+**Root cause:** Chrome for Android's *Auto dark theme* (and Samsung Internet's dark mode)
+algorithmically **invert light pages at paint time** when the OS is in dark mode. When the user
+toggles the app to light, the page renders light and the browser immediately re-darkens it — that is
+the "flash, then dark" you see. Opting out requires an explicit signal the browser honors, and the
+app wasn't sending it.
 
-**How it was confirmed:** reproduced in headless Chromium at a 390px phone viewport with
-`prefers-color-scheme: dark` and Chrome's real auto-dark emulation
-(`Emulation.setAutoDarkModeOverride`). With auto-dark **on**, tapping "light" rendered dark pixels
-(`rgb(34,35,36)`) even though the computed CSS background was the light value (`rgb(244,245,247)`) —
-the inversion happens in the compositor, after computed style. With auto-dark **off**, light
-rendered correctly, proving the toggle was fine. A first attempt at a fix (a `<meta name="color-scheme">`
-alone) did **not** work, because the CSS `:root { color-scheme: light }` overrides the meta — a good
-reminder to reproduce before shipping a fix.
+**The fix that actually works — the `only` keyword.** Per Chrome's
+[Auto Dark Theme docs](https://developer.chrome.com/blog/auto-dark-theme), the opt-out is
+**`color-scheme: only light`**. Plain `light dark` (or plain `light`) does **not** opt a light page
+out of force-dark — it only says "I support both," and the browser still darkens the light state.
+
+- `src/index.css` — the light state's `:root` uses **`color-scheme: only light`**; the dark theme
+  keeps `color-scheme: dark`. So light mode tells the browser "render light, do not auto-darken,"
+  while dark mode is unaffected.
+- `index.html` — a `<meta name="color-scheme">` in `<head>` provides the signal before the
+  JS-injected stylesheet loads (reduces the load flash).
 
 ![Login page at a phone viewport, OS dark mode + browser auto-dark on. Before: tapping "light" stays dark. After: light renders.](images/login-dark-mode-before-after.png)
 
-**Fix:** declare the page **dark-capable** so the browser stops force-darkening it:
+**A wrong turn worth recording.** The first attempt used `color-scheme: light dark`, validated
+against headless Chromium's auto-dark emulation (`Emulation.setAutoDarkModeOverride`), which rendered
+light and *looked* fixed. Real Chrome Android still force-darkened it — the emulation's override is
+more lenient than the shipping feature. The emulation is good for *reproducing* the bug, but the
+opt-out must be confirmed on a real device, and the documented `only` keyword is what actually counts.
 
-- `src/index.css` — change the base `:root` from `color-scheme: light` to **`color-scheme: light dark`**. This is the load-bearing change; it tells the browser the page manages its own dark mode.
-- `index.html` — add **`<meta name="color-scheme" content="light dark" />`** in `<head>`, so the signal exists *before* the JS-injected stylesheet loads (also reduces the load flash).
+**The breakthrough — fresh load vs. cache.** The fix was confirmed the moment a *fresh* page load (a
+newly relaunched browser tab, bypassing cache) rendered light with the browser's auto-dark left **on**,
+while the *same* URL opened from an existing/cached entry point still came up dark. That one comparison
+did two things at once: it proved `color-scheme: only light` works on a real device with auto-dark
+active, and it isolated every remaining "still dark" report as a **caching** problem (a stale
+`index.html`), not a code problem — which led directly to the cache-header fix below.
 
-The toggle logic, the dark palette, and the system-dark media query were unchanged.
+**Caveat — in-app browsers can't be overridden.** This fix stops force-dark in real browsers
+(Chrome, Safari, Edge). It does **not** help inside an app's *in-app browser* — e.g. tapping the link
+from the LinkedIn or Facebook mobile app opens their built-in browser (Android System WebView), which
+the host app can force-dark regardless of any `color-scheme` signal. That darkening hits every website
+opened in-app, not just this one, and no site-side change can prevent it; opening the link in a real
+browser renders it correctly.
 
-**Trade-off accepted:** with `color-scheme: light dark`, if the OS is in dark mode but the user
-picks the app's *light* theme, native UA-drawn controls (scrollbars, autofill highlight, caret, the
-date picker) may follow the system's dark preference. The app's own surfaces (background, card,
-text) stay light because they come from CSS custom properties. Negligible on the login page; only
-worth watching on the board's date field.
-
-**Lesson:** a page that supports both themes must advertise `color-scheme: light dark` (and must not
-be overridden to light-only anywhere), or mobile auto-dark will invert it regardless of the app's
-own toggle. A `<meta name="color-scheme">` won't help on its own if a CSS `:root { color-scheme: light }`
-overrides it — the CSS value wins.
+**Lesson:** to keep a light theme from being force-darkened by mobile auto-dark, the light state must
+declare `color-scheme: only light` — the `only` keyword is the operative part; `light dark` is not an
+opt-out. Verify on a real device, and accept that in-app WebViews are outside a website's control.
 
 ## Google sign-in button didn't follow the app theme
 
@@ -113,6 +120,40 @@ offers `outline`, `filled_blue`, and `filled_black`; none of them follow `prefer
   the theme flips (plus a `matchMedia` listener for the system-preference case). Clear the container
   first, or you get a stacked/duplicate button.
 
-**Lesson:** third-party rendered widgets don't inherit your theme via CSS — pass their own theme
-option and re-render them when your theme changes. (Verifiable only with a real `VITE_GOOGLE_CLIENT_ID`
-against a running app, since the button is Google-rendered.)
+**Follow-up — the button changed length on each toggle.** The re-render measured its width from the
+container *after* clearing it (momentarily empty), so each redraw came back a slightly different size.
+Fixed by measuring a **stable width from the surrounding box before clearing** and caching it, so every
+re-render uses the same width.
+
+**Lesson:** third-party rendered widgets don't inherit your theme via CSS — pass their own theme option
+and re-render them when your theme changes, but re-render from a *stable* measurement so the widget
+doesn't jump. (Verifiable only with a real `VITE_GOOGLE_CLIENT_ID` against a running app, since the
+button is Google-rendered.)
+
+## Cache & deploy propagation — stale index.html and in-app browsers
+
+**Symptom:** after deploying a frontend fix, a phone kept showing the *old* build when the site was
+opened from an existing link (e.g. a LinkedIn post), even though a fresh load in Chrome showed the new
+build. Clearing Chrome's cache didn't fully resolve it.
+
+**Root cause & fix — cache headers.** Vite fingerprints `/assets/*.js` and `.css` (a new filename
+every build), so those are safe to cache forever; the real risk is a cached **`index.html`** pinning a
+returning visitor to old asset URLs. The deploy set no cache policy, leaving it to defaults. Fixed in
+`frontend/staticwebapp.config.json`:
+
+- `globalHeaders` → `Cache-Control: no-cache`, so the HTML shell is always revalidated and a returning
+  visitor picks up new deploys immediately.
+- a route override for `/assets/*` → `Cache-Control: public, max-age=31536000, immutable`, so the
+  fingerprinted bundles still cache long-term.
+
+**Caveat — in-app browsers keep their own cache (and their own dark mode).** Apps like LinkedIn and
+Facebook open links in a built-in browser (Android System WebView) with its **own** cache, separate
+from Chrome — so clearing Chrome's cache doesn't touch it, and it may serve an old copy until its own
+cache expires. This is the same in-app browser that can **force-dark** pages (see the dark/light-mode
+note above): the darkening and the caching are the host app's behavior, not the website's, and a site
+can neither clear that cache nor override that dark mode. Opening the link in a real browser (Chrome,
+Safari, Edge) is the reliable path, and it's what was verified working.
+
+**Lesson:** ship an SPA with `no-cache` on the HTML shell and `immutable` on fingerprinted assets so
+deploys propagate to returning visitors; and remember in-app browsers (LinkedIn, Facebook, etc.) have
+independent caches and dark-mode behavior a website can neither clear nor override.
