@@ -108,6 +108,7 @@ with the **[Azure guide](docs/deployment/azure.md)**.
 **Deployment & operations** — [`docs/deployment/`](docs/deployment/)
 
 - **[Azure guide](docs/deployment/azure.md)** — **start-to-finish Azure deploy**: one ordered pass from an empty subscription to a working deployment (App Service, passwordless Azure SQL, Static Web Apps, Google sign-in, CORS, Key Vault), plus the env-var reference and verification checklist.
+- **[Infrastructure scripts](infra/README.md)** — provision / export / re-import the Azure stack as code (Bash + PowerShell): stand up the environment, capture an existing one to ARM/Bicep + app settings + Key Vault secret *names*, and rebuild a clone in one command. The IaC counterpart to the Azure guide.
 - **[Deployment overview](docs/deployment/overview.md)** — build, compile, and deploy anywhere (Docker Compose, Linux + nginx, Azure), with the included Dockerfiles and compose samples, plus production hardening.
 - **[Google sign-in](docs/deployment/google-signin.md)** — end-to-end Google sign-in setup: Cloud project, consent screen, OAuth client, wiring the client ID into the frontend and backend, and troubleshooting.
 - **[Key Vault](docs/deployment/key-vault.md)** — what this project stores in Azure Key Vault (just the JWT signing key), the two ways to wire it in, RBAC vs. access-policy, and how it stays optional locally.

@@ -1,0 +1,19 @@
+# Azure export output — may contain REAL secret values. Do NOT commit.
+azure-export/*.settings.env
+azure-export/*.appsettings.json
+azure-export/*.connectionstrings.json
+azure-export/keyvault-*.secrets.env
+azure-export/keyvault-*.secrets.json
+
+# Safe to keep if you want a non-sensitive snapshot:
+#   azure-export/*.arm.json
+#   azure-export/*.bicep
+#   azure-export/inventory.md
+#   azure-export/inventory.csv
+#   azure-export/keyvault-*.secrets.txt   (names only)
+
+# Local env/secret files generally
+*.secrets.json
+*.secrets.env
+.env
+*.local

@@ -10,7 +10,7 @@ avoids the chicken-and-egg traps (the managed identity must exist before the SQL
 exist before Google/CORS; the new build must be deployed before you'd ever remove a plaintext key).
 
 For deeper explanation of individual pieces, see the focused guides: [Google sign-in](google-signin.md) ·
-[Key Vault](key-vault.md) · [Database portability](../architecture/database-portability.md). For local
+[Key Vault](key-vault.md) · [Database portability](../architecture/database-portability.md). To **script** this stack (provision / export / re-import) instead of the manual steps here, see the [infrastructure toolkit](../../infra/README.md). For local
 setup and non-Azure targets (Docker, Linux + nginx), see [Local development](../development/local-dev.md)
 and the [Deployment overview](overview.md).
 
