@@ -3,8 +3,18 @@ name: Build and Deploy taskboard-06-api
 on:
   push:
     branches: [ main ]
+    paths:
+      - 'src/**'
+      - 'tests/**'
+      - 'TodoApp.sln'
+      - '.github/workflows/api-ci-cd.yml'
   pull_request:
     branches: [ main ]
+    paths:
+      - 'src/**'
+      - 'tests/**'
+      - 'TodoApp.sln'
+      - '.github/workflows/api-ci-cd.yml'
   workflow_dispatch:
  
 # Required for OIDC (federated) login to Azure — no stored password/publish-profile.

@@ -3,9 +3,15 @@ name: Build and Deploy Frontend (Static Web Apps)
 on:
   push:
     branches: [ main ]
+    paths:
+      - 'frontend/**'
+      - '.github/workflows/frontend-ci-cd.yml'
   pull_request:
     types: [ opened, synchronize, reopened, closed ]
     branches: [ main ]
+    paths:
+      - 'frontend/**'
+      - '.github/workflows/frontend-ci-cd.yml'
   workflow_dispatch:
 
 jobs:
