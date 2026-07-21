@@ -1,3 +1,7 @@
+# Defense-in-depth for the infra toolkit — travels with this folder so exported
+# secrets stay out of git even if it is dropped into a repo whose root .gitignore
+# doesn't cover them. (In THIS repo the root .gitignore already ignores azure-export/.)
+
 # Azure export output — may contain REAL secret values. Do NOT commit.
 azure-export/*.settings.env
 azure-export/*.appsettings.json

@@ -1,6 +1,16 @@
 # systemd unit for running the published API behind a reverse proxy.
-# Install: copy to /etc/systemd/system/todoapp-api.service, then:
-#   sudo systemctl daemon-reload && sudo systemctl enable --now todoapp-api
+#
+# Install:
+#   1. Copy this file to /etc/systemd/system/todoapp-api.service
+#   2. Create the secrets env file (NOT in git), root-owned and locked to 600.
+#      systemd reads it as root before dropping to User=, so www-data need not read it:
+#        sudo install -d -m 700 /etc/todoapp-api
+#        printf 'Jwt__Key=%s\n' "$(openssl rand -base64 48)" | sudo tee /etc/todoapp-api/todoapp-api.env >/dev/null
+#        sudo chmod 600 /etc/todoapp-api/todoapp-api.env
+#   3. sudo systemctl daemon-reload && sudo systemctl enable --now todoapp-api
+#
+# Keep EVERY secret (the JWT signing key, any DB password, a Google client secret)
+# in that EnvironmentFile — never inline in this unit, which is committed to git.
 [Unit]
 Description=TodoApp API
 After=network.target
@@ -13,12 +23,17 @@ RestartSec=10
 KillSignal=SIGINT
 SyslogIdentifier=todoapp-api
 User=www-data
+
+# Non-secret settings are fine inline in the (committed) unit.
 Environment=ASPNETCORE_ENVIRONMENT=Production
 Environment=ASPNETCORE_URLS=http://127.0.0.1:5080
-# Replace with a real secret (or use an EnvironmentFile / secrets manager).
-Environment=Jwt__Key=CHANGE_ME_TO_A_LONG_RANDOM_SECRET
 Environment=ConnectionStrings__DefaultConnection=Data Source=/var/www/todoapp-api/todoapp.db
-# Environment=Authentication__Google__ClientId=your-google-client-id
+
+# Secrets come from a root-owned, chmod 600 file that is NOT in the repo.
+# It MUST define Jwt__Key=... . Listed after the Environment= lines above so its
+# values win — put ConnectionStrings__DefaultConnection here (with the DB password)
+# if you move off SQLite, and Authentication__Google__ClientId=... for Google sign-in.
+EnvironmentFile=/etc/todoapp-api/todoapp-api.env
 
 [Install]
 WantedBy=multi-user.target

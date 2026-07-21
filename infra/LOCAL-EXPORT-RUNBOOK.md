@@ -29,6 +29,97 @@ Cloud Shell (they use the management plane), but Key Vault is the sticking point
 - To read Key Vault secret **values**, you need data-plane access on the vault
   (`Key Vault Secrets User` RBAC role, or a "get/list" access policy).
 
+## Step 0 — Secure the secrets folder in git FIRST
+
+**Do all of this before the folder holds any secret.** The export writes **real
+secret values** (the JWT signing key, SQL connection strings, the SQL admin
+password) into `azure-export/`. Git only ignores files it isn't **already**
+tracking, so the ignore rule must be committed **before** those files exist —
+otherwise a secret can slip into a commit. The same steps apply to **any** folder
+that will hold exported secrets; substitute its name for `azure-export/`.
+
+### 1. Create (or append to) the repo's root `.gitignore`
+
+From the repo root (creates the file if missing; add only the lines you don't
+already have):
+
+```powershell
+@'
+# Azure export output — may contain REAL secret values. Never commit.
+azure-export/
+
+# Belt-and-suspenders: ignore exported secret files by name anywhere in the repo.
+*.secrets.json
+*.secrets.env
+*.settings.env
+'@ | Add-Content -Path .gitignore
+```
+
+What it should contain, at minimum:
+
+- **`azure-export/`** — the trailing `/` ignores the whole output directory and
+  everything under it. Put it in the **root** `.gitignore` so it applies no matter
+  where you run the export from. (Want to keep a *non-secret* snapshot —
+  ARM/Bicep/inventory — committable instead? Ignore only the sensitive files; see
+  [Protect the output](#protect-the-output--keep-secrets-out-of-git).)
+- **`*.secrets.json` / `*.secrets.env` / `*.settings.env`** — a by-name safety net,
+  so an exported secret file is ignored even if it ever lands outside
+  `azure-export/`.
+
+> A fuller template — the toolkit's own bundled file — is shown in the README:
+> [Example — the bundled `.gitignore`](README.md#example--the-bundled-gitignore).
+
+### 2. Commit and push the `.gitignore` FIRST — before any secret exists
+
+This is the whole reason for the ordering: put the guard in place **and share it**
+while the folder is still empty, so the commit is guaranteed safe.
+
+```powershell
+git add .gitignore
+git commit -m "chore: ignore azure-export secrets before exporting"
+git push
+```
+
+### 3. Verify the ignore is active — before you export
+
+Ask git directly:
+
+```powershell
+git check-ignore -v azure-export/keyvault-taskboard-kv.secrets.json
+```
+
+Git should echo the matching rule (e.g. `.gitignore:NN:azure-export/`). **No output
+means the folder is NOT ignored** — fix the rule, re-commit, and re-check before
+continuing.
+
+### 4. Only now create / export the sensitive files
+
+Run the export (Steps 1-4 below). The secret files are written into the
+already-ignored folder.
+
+### 5. Sanity-check on every later commit
+
+```powershell
+git status            # exported secret files must NOT be listed for commit
+git status --ignored  # they should appear under "Ignored files"
+```
+
+> ⚠️ **Never force past the ignore.** `git add -f` / `git add --force` overrides
+> `.gitignore` and stages the file anyway — the most common way an ignored secret
+> still gets committed. If you genuinely need a *non-secret* file out of an ignored
+> folder, add a specific allow rule (e.g. `!azure-export/inventory.md`) — never
+> force-add a secrets folder.
+
+> **This repo is already set up:** its root `.gitignore` already contains
+> `azure-export/` (committed and pushed), so exports here are ignored out of the
+> box — sub-steps 1-2 are already done. Repeat them when you point the toolkit at a
+> **different** repo or a **differently-named** output folder.
+
+> **Already committed a secret?** Adding it to `.gitignore` afterward does nothing —
+> git keeps tracking a file it already tracks. Untrack it (`git rm --cached <file>`),
+> **rotate the secret** (treat it as compromised), and scrub it from history with
+> `git filter-repo` (or the BFG) before pushing.
+
 ## Step 1 — pick a working folder
 
 Run everything from a **parent** folder (e.g. `C:\ToDoApp-Azure\infra`, where these scripts live), NOT from inside
@@ -155,6 +246,8 @@ stays logged in (that's fine — read-only).
 
 ## Protect the output — keep secrets out of git
 
+> The **first** thing to do — ignoring the folder *before* you export — is [Step 0](#step-0--secure-the-secrets-folder-in-git-first). This section is about keeping a *non-secret* snapshot committable.
+
 `taskboard-06-api.settings.env`, `keyvault-*.secrets.json`, and
 `keyvault-*.secrets.env` can contain **real secret values** (the JWT key,
 connection strings). The included `.gitignore` excludes them. If you commit this
@@ -166,6 +259,69 @@ git status --ignored
 
 Keep only `*.secrets.txt` (names) and the ARM/Bicep/inventory if you want a
 committable, non-sensitive snapshot.
+
+## Scan for committed secrets (gitleaks / trufflehog)
+
+`.gitignore` stops *new* mistakes; a secret scanner catches anything already in
+**git history**. Run one of these from the repo root before you push — both scan
+committed history, so your untracked `azure-export/` is never read.
+
+### gitleaks
+
+Install (pick one):
+
+```powershell
+winget install gitleaks.gitleaks
+# or:  scoop install gitleaks   |   choco install gitleaks
+# or a binary from https://github.com/gitleaks/gitleaks/releases
+```
+
+If `gitleaks` isn't found right after install, reopen the shell (winget updates
+`PATH`) or refresh it in-session:
+
+```powershell
+$env:Path = [Environment]::GetEnvironmentVariable('Path','Machine') + ';' + [Environment]::GetEnvironmentVariable('Path','User')
+```
+
+Scan the full history:
+
+```powershell
+gitleaks git . --redact --verbose --report-path gitleaks-report.json
+```
+
+`no leaks found` (exit code 0) = clean. Otherwise it writes redacted findings to
+`gitleaks-report.json` (exit code 1); review it, then delete it
+(`Remove-Item gitleaks-report.json`) — never commit the report. On older gitleaks
+the command is `gitleaks detect --source . --redact`.
+
+### trufflehog
+
+Install (pick one):
+
+```powershell
+scoop install trufflehog        # or:  choco install trufflehog
+# or a binary from https://github.com/trufflesecurity/trufflehog/releases
+```
+
+Scan the full history (add `--only-verified` to show only confirmed-live secrets):
+
+```powershell
+trufflehog git file://.
+```
+
+Or with Docker, nothing to install:
+
+```powershell
+docker run --rm -v "${PWD}:/repo" trufflesecurity/trufflehog:latest git file:///repo
+```
+
+> **Use the `git` modes above.** They scan committed history, so the untracked
+> `azure-export/` secrets are excluded. A **filesystem** scan
+> (`gitleaks ... --no-git` or `trufflehog filesystem .`) *will* read `azure-export/`
+> — only run those with that folder excluded.
+
+**Make it automatic:** add gitleaks as a pre-commit hook and/or a CI step so a
+future secret is blocked before it can ever be committed.
 
 ## Recreating the environment elsewhere (one command)
 

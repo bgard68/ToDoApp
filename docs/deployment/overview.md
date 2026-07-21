@@ -187,8 +187,11 @@ sudo mkdir -p /var/www/todoapp-api /var/www/todoapp-web
 sudo cp -r publish/*        /var/www/todoapp-api/
 sudo cp -r frontend/dist/*  /var/www/todoapp-web/
 
-# 3) API service (edit the Jwt__Key first!)
+# 3) API service — keep secrets in a NON-committed EnvironmentFile, not the unit
 sudo cp deploy/todoapp-api.service /etc/systemd/system/
+sudo install -d -m 700 /etc/todoapp-api
+printf 'Jwt__Key=%s\n' "$(openssl rand -base64 48)" | sudo tee /etc/todoapp-api/todoapp-api.env >/dev/null
+sudo chmod 600 /etc/todoapp-api/todoapp-api.env
 sudo systemctl daemon-reload
 sudo systemctl enable --now todoapp-api
 

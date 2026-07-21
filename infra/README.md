@@ -6,6 +6,8 @@ environment on Azure, aligned to the live resource group `rg-taskboard`. Bash
 
 > **Where this fits:** these scripts live in **`infra/`** in the repo and are the scripted / infrastructure-as-code counterpart to the manual **[Azure deploy guide](../docs/deployment/azure.md)** and the **[Key Vault guide](../docs/deployment/key-vault.md)**. Run them from this `infra/` folder; exported output lands in `infra/azure-export/` (git-ignored).
 
+> 🔒 **Secure the output folder in git BEFORE your first export.** The export writes real secrets (JWT key, SQL connection strings) into `azure-export/`, and git only ignores files it isn't already tracking — so add `azure-export/` to the repo's **root** `.gitignore`, then **commit and push it** — all *before* any secret exists — and confirm with `git check-ignore -v azure-export/<file>` before exporting. (This repo already has that rule; repeat it when you point the toolkit at another repo or folder.) Step-by-step: **[Secure the secrets folder first](LOCAL-EXPORT-RUNBOOK.md#step-0--secure-the-secrets-folder-in-git-first)**.
+
 ## Overview
 
 | File | Purpose |
@@ -342,6 +344,38 @@ resource types export incompletely or not at all (the script warns and continues
 Secrets are **not** exported (Key Vault secret *values*, connection strings, admin
 passwords stay in Azure). Always diff the Bicep before trusting it for a rebuild.
 
+### Example — the bundled `.gitignore`
+
+For reference, here is the bundled **`infra/.gitignore`** in full — use it as a
+template for any repo or folder that will hold exported secrets (the file itself
+is the source of truth; this is a copy):
+
+```gitignore
+# Defense-in-depth for the infra toolkit — travels with this folder so exported
+# secrets stay out of git even if it is dropped into a repo whose root .gitignore
+# doesn't cover them. (In THIS repo the root .gitignore already ignores azure-export/.)
+
+# Azure export output — may contain REAL secret values. Do NOT commit.
+azure-export/*.settings.env
+azure-export/*.appsettings.json
+azure-export/*.connectionstrings.json
+azure-export/keyvault-*.secrets.env
+azure-export/keyvault-*.secrets.json
+
+# Safe to keep if you want a non-sensitive snapshot:
+#   azure-export/*.arm.json
+#   azure-export/*.bicep
+#   azure-export/inventory.md
+#   azure-export/inventory.csv
+#   azure-export/keyvault-*.secrets.txt   (names only)
+
+# Local env/secret files generally
+*.secrets.json
+*.secrets.env
+.env
+*.local
+```
+
 ### Alternative: capture as Terraform
 
 If you'd rather manage the existing setup in Terraform, use Microsoft's
@@ -412,6 +446,12 @@ Applies across provision, export, and import.
 - Clear secret values from your shell session when done
   (`Remove-Variable names, secrets`), and rotate anything that was ever committed
   or shared.
+- **Never force past the ignore.** `git add -f` / `git add --force` overrides
+  `.gitignore` and stages the file anyway — the most common way an ignored secret
+  still gets committed. Need a *non-secret* file out of an ignored folder? Add a
+  specific allow rule (e.g. `!azure-export/inventory.md`) instead of force-adding.
+- **Scan before you push.** Run a secret scanner over history — see
+  [Scan for committed secrets](LOCAL-EXPORT-RUNBOOK.md#scan-for-committed-secrets-gitleaks--trufflehog).
 
 **Least privilege**
 - Export only needs **Reader** on the resource group, plus **Key Vault Secrets
