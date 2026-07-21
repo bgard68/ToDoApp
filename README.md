@@ -7,6 +7,12 @@ organized with Clean Architecture (Domain / Application / Infrastructure / WebAp
 refresh-token rotation and **revocable tokens** for compromised accounts. The frontend
 is a React (Vite) single-page app.
 
+<p align="center">
+  <img src="demo/todoapp-demo.gif"
+       alt="TaskBoard demo — sign in, add a task, drag it across lanes, filter by category, dark mode"
+       width="820">
+</p>
+
 ## Highlights
 
 - **Kanban board** — three lanes (To Do / In Progress / Done) with native HTML5
