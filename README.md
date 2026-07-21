@@ -114,6 +114,7 @@ with the **[Azure guide](docs/deployment/azure.md)**.
 - **[Key Vault](docs/deployment/key-vault.md)** — what this project stores in Azure Key Vault (just the JWT signing key), the two ways to wire it in, RBAC vs. access-policy, and how it stays optional locally.
 - **[Troubleshooting log](docs/deployment/troubleshooting-log.md)** — a chronological post-mortem of getting the API + Key Vault working on Azure: every symptom, how the logs were read (Kudu VFS API, `docker.log`), the root-cause chain, the clean rebuild, and every command used.
 - **[Pipeline testing & error handling](docs/deployment/pipeline.md)** — how the GitHub Actions pipeline is structured, how fail-fast + notifications stop a broken build from deploying, the "Verify publish output" guard, and how to test all of it.
+- **[Cold starts on the free tier](docs/deployment/cold-starts.md)** — why the first request after idle is slow (App Service + serverless SQL waking), why you may see 502/503/504, and the three mitigations: server-side DB retry, the client `wakeFetch` retry that shows "Waking the server up…", and the keep-warm GitHub Action.
 
 **Architecture & design** — [`docs/architecture/`](docs/architecture/)
 

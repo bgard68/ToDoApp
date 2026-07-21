@@ -19,6 +19,7 @@ The ones that cost the most time — jump to the section for the full story:
 - **`401 … "The signature key was not found"`** → [Local dev & auth testing](#local-dev--auth-testing): a stale/cross-instance token, or an env var overriding your user-secret.
 - **Users get signed out of every device at once** → [The real find](#the-real-find--concurrent-refresh-signed-users-out-everywhere): parallel refreshes tripping reuse detection.
 - **Serverless Azure SQL times out on the first request** → [Database](#database-sqlite-vs-azure-sql): auto-pause cold start (errors -2 / 40613) — retry, and keep seeding off the startup path.
+- **First request after idle is slow / "Failed to fetch"** → [Cold starts on the free tier](deployment/cold-starts.md): the app *and* DB wake from sleep; the client retries `502/503/504` + network errors, and a keep-warm ping keeps the app loaded.
 - **`<name>.azurewebsites.net` won't resolve** → [Networking / hostnames](#networking--hostnames): use the Overview page's regional Default domain.
 - **Drag-and-drop is dead on mobile** → [frontend notes](development/frontend-notes.md): the native HTML5 DnD API is touch-blind.
 - **Light mode is ignored in a phone browser** → [frontend notes](development/frontend-notes.md#darklight-mode--mobile-browsers-force-darken-a-light-only-page): mobile auto-dark force-darkens a light page; opt out with `color-scheme: only light` (the `only` keyword — `light dark` does not opt out).
@@ -48,6 +49,8 @@ The ones that cost the most time — jump to the section for the full story:
 - A GET to a POST-only endpoint (e.g. `/api/auth/login`) returns 405 — that's expected, not a bug; test through the app, not the address bar.
 
 ## Diagnosing a 500 / failed request in production
+
+> **Now handled gracefully client-side:** the app retries these transient wake-ups (network errors, 502/503/504) and shows "Waking the server up…" instead of failing outright — see [Cold starts on the free tier](deployment/cold-starts.md).
 
 When the deployed frontend can't talk to the API, it's almost always one of three culprits — check them in this order before touching code:
 

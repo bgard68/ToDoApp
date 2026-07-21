@@ -157,3 +157,21 @@ Safari, Edge) is the reliable path, and it's what was verified working.
 **Lesson:** ship an SPA with `no-cache` on the HTML shell and `immutable` on fingerprinted assets so
 deploys propagate to returning visitors; and remember in-app browsers (LinkedIn, Facebook, etc.) have
 independent caches and dark-mode behavior a website can neither clear nor override.
+
+## Cold starts — "Waking the server up…" instead of "Failed to fetch"
+
+**Symptom:** the first request after the app had been idle failed instantly with
+"Failed to fetch" (or a 502/503/504) — because Azure's Free App Service unloads the API
+after ~20 min and the serverless database auto-pauses, so the first hit has to wake them.
+
+**Fix (client side):** all requests go through a `wakeFetch` wrapper in
+`src/lib/apiClient.js` that retries **network errors and 502/503/504** with exponential
+backoff (~50s) and surfaces a **"Waking the server up…"** message (`App.jsx`,
+`AuthForm.jsx`) instead of failing immediately. Other codes (`400/401/403/404/409/500`)
+are **not** retried, so real errors still fail fast.
+
+**Lesson:** on a sleep-when-idle host, treat the *network error* and the *gateway* codes
+(`502/503/504`) as "warming up — retry with a message," but never the app's own error
+codes. The full story (why it happens, the server-side DB retry, and the keep-warm
+GitHub Action + free-tier notes) is in
+**[Cold starts on the free tier](../deployment/cold-starts.md)**.
