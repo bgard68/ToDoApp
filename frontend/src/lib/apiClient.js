@@ -40,10 +40,56 @@ function toError(res, data) {
   return error;
 }
 
+// --- Cold-start resilience --------------------------------------------------
+// Azure's Free (F1) App Service unloads the app after idle and the serverless SQL
+// database auto-pauses, so the FIRST request after a quiet spell can take ~30-60s
+// to wake. Rather than fail with "Failed to fetch", retry transient warm-up
+// failures with backoff and let the UI show a "Waking the server up..." note
+// (register a handler via setOnServerWaking).
+let onServerWaking = null;
+export function setOnServerWaking(fn) {
+  onServerWaking = fn;
+}
+
+const WAKE_MAX_RETRIES = 6; // extra attempts after the first
+const WAKE_BASE_MS = 2000; // backoff base
+const WAKE_MAX_MS = 12000; // backoff cap
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// 502/503/504 are what Azure returns while an instance is still starting up.
+const isWarmingUp = (res) => res.status === 502 || res.status === 503 || res.status === 504;
+
+// fetch() wrapper that transparently retries cold-start failures (a network error,
+// or a 502/503/504) with exponential backoff, signalling the UI while it waits and
+// clearing the signal once the server responds.
+async function wakeFetch(url, init) {
+  let signalled = false;
+  for (let attempt = 0; ; attempt++) {
+    try {
+      const res = await fetch(url, init);
+      if (attempt >= WAKE_MAX_RETRIES || !isWarmingUp(res)) {
+        if (signalled) onServerWaking?.(false);
+        return res;
+      }
+    } catch (err) {
+      // Server unreachable (still waking, or genuinely down) — retry until budget.
+      if (attempt >= WAKE_MAX_RETRIES) {
+        if (signalled) onServerWaking?.(false);
+        throw err;
+      }
+    }
+    if (!signalled) {
+      signalled = true;
+      onServerWaking?.(true);
+    }
+    await sleep(Math.min(WAKE_BASE_MS * 2 ** attempt, WAKE_MAX_MS));
+  }
+}
+
 function doFetch(path, options = {}) {
   const headers = { 'Content-Type': 'application/json', ...(options.headers || {}) };
   if (accessToken) headers.Authorization = `Bearer ${accessToken}`;
-  return fetch(`${BASE}${path}`, { ...options, headers });
+  return wakeFetch(`${BASE}${path}`, { ...options, headers });
 }
 
 // A single in-flight refresh shared by all callers. Without this, two requests that
@@ -65,7 +111,7 @@ async function performRefresh() {
   const refreshToken = getRefreshToken();
   if (!refreshToken) return false;
 
-  const res = await fetch(`${BASE}/api/auth/refresh`, {
+  const res = await wakeFetch(`${BASE}/api/auth/refresh`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ refreshToken }),
@@ -103,7 +149,7 @@ async function request(path, options = {}) {
 }
 
 async function publicPost(path, body) {
-  const res = await fetch(`${BASE}${path}`, {
+  const res = await wakeFetch(`${BASE}${path}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { AuthApi, getRefreshToken, setOnUnauthorized } from './lib/apiClient.js';
+import { AuthApi, getRefreshToken, setOnUnauthorized, setOnServerWaking } from './lib/apiClient.js';
 import AuthForm from './components/AuthForm.jsx';
 import KanbanBoard from './components/KanbanBoard.jsx';
 import ThemeToggle from './components/ThemeToggle.jsx';
@@ -7,10 +7,12 @@ import ThemeToggle from './components/ThemeToggle.jsx';
 export default function App() {
   const [user, setUser] = useState(null);
   const [initializing, setInitializing] = useState(true);
+  const [waking, setWaking] = useState(false);
 
   useEffect(() => {
     // If a session (access token / stamp) is revoked mid-use, drop back to sign-in.
     setOnUnauthorized(() => setUser(null));
+    setOnServerWaking(setWaking); // show a note when a cold start is being waited out
 
     (async () => {
       if (getRefreshToken()) {
@@ -55,7 +57,7 @@ export default function App() {
   if (initializing) {
     return (
       <div className="app">
-        <p className="empty">Loading…</p>
+        <p className="empty">{waking ? 'Waking the server up… this can take up to a minute.' : 'Loading…'}</p>
       </div>
     );
   }
@@ -66,6 +68,7 @@ export default function App() {
         onLogin={handleLogin}
         onRegister={handleRegister}
         onGoogle={handleGoogle}
+        waking={waking}
       />
     );
   }

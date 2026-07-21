@@ -1,0 +1,45 @@
+name: Keep API warm
+
+# Pings the API on a schedule so the Free (F1) App Service instance doesn't unload
+# between visits. It hits the ROOT endpoint only (which 302-redirects to Swagger),
+# so it warms the *app* WITHOUT querying the database — that way it does not burn
+# the Azure SQL serverless free-limit. The occasional DB cold start that still
+# happens is handled gracefully client-side (apiClient.js "Waking the server up…").
+#
+# Notes:
+#   - Uses the repo Variable VITE_API_URL (Settings > Secrets and variables >
+#     Actions > Variables) — the API base URL, the one that shows Swagger.
+#   - GitHub delays/skips scheduled runs under load, so treat ~10 min as "roughly".
+#   - Free Actions minutes are unlimited on PUBLIC repos; on a PRIVATE repo this
+#     counts against the monthly minutes — widen the interval or skip it there.
+
+on:
+  schedule:
+    - cron: '*/10 * * * *'   # roughly every 10 minutes
+  workflow_dispatch:          # allow manual "wake it now" runs
+
+concurrency:
+  group: keep-warm
+  cancel-in-progress: true
+
+permissions: {}              # no repo access needed — it just makes an HTTP call
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping the API root (warms the app, no DB hit)
+        env:
+          API_URL: ${{ vars.VITE_API_URL }}
+        run: |
+          if [ -z "$API_URL" ]; then
+            echo "VITE_API_URL is not set — set it to the API base URL (the one that shows Swagger). Skipping."
+            exit 0
+          fi
+          url="${API_URL%/}/"
+          echo "Pinging $url"
+          code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 40 --retry 3 --retry-all-errors "$url" || echo "000")
+          echo "HTTP $code"
+          # Any response (200/302/5xx) means the instance woke and served — that's the goal.
+          # A total connection failure (000) is logged but does not fail the schedule (avoids alert spam).
+          if [ "$code" = "000" ]; then echo "::warning::No response from $url (still waking, or unreachable)."; fi

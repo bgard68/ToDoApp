@@ -2,7 +2,7 @@ import { useState } from 'react';
 import GoogleButton from './GoogleButton.jsx';
 import ThemeToggle from './ThemeToggle.jsx';
 
-export default function AuthForm({ onLogin, onRegister, onGoogle }) {
+export default function AuthForm({ onLogin, onRegister, onGoogle, waking }) {
   const [mode, setMode] = useState('login'); // 'login' | 'register'
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -56,6 +56,12 @@ export default function AuthForm({ onLogin, onRegister, onGoogle }) {
         <p className="auth__subtitle">
           {isRegister ? 'Register to start your list.' : 'Welcome back.'}
         </p>
+
+        {waking && (
+          <div className="banner" style={{ background: 'rgba(37, 99, 235, 0.12)', color: 'var(--primary)' }}>
+            Waking the server up… the first request after it's been idle can take up to a minute.
+          </div>
+        )}
 
         <form onSubmit={handleSubmit} className="auth__form">
           <label className="auth__label">
