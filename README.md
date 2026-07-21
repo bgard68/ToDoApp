@@ -10,7 +10,7 @@ is a React (Vite) single-page app.
 <p align="center">
   <img src="demo/todoapp-demo.gif"
        alt="TaskBoard demo — sign in, add a task, drag it across lanes, filter by category, dark mode"
-       width="820">
+       width="480">
 </p>
 
 ## Highlights
