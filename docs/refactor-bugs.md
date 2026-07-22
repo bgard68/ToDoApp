@@ -18,9 +18,22 @@ finds them there and returns *before* it ever consults custom type handlers **on
 path**. So my custom handlers ran on reads but not writes: writes stored the provider default (an ISO
 string via Microsoft.Data.Sqlite), and the read handler then choked trying to parse that string as ticks.
 
+**What the column held** — for an entity with `CreatedAt = 2026-01-01T00:00:00Z`, the value written to
+the SQLite column:
+
+| | Stored value | On read |
+|---|---|---|
+| **Before** (handler skipped on write) | `2026-01-01 00:00:00+00:00` — an **ISO text string** | `DateTimeOffsetTicksHandler.Parse` runs `Convert.ToInt64("2026-01-01 00:00:00+00:00")` → **`FormatException`** |
+| **After** (handler owns the write) | `639028224000000000` — the **UTC-tick `long`** | rebuilds the `DateTimeOffset` from the `long` — round-trips cleanly |
+
 **Fix.** Remove the built-in mappings so the custom handlers own both directions, in `DapperConfig`:
 
 ```csharp
+// Before — handlers registered, but silently ignored on WRITES for these built-in types:
+SqlMapper.AddTypeHandler(new DateTimeOffsetTicksHandler());
+SqlMapper.AddTypeHandler(new GuidTypeHandler());
+
+// After — remove the built-in mappings FIRST, so the handlers own reads AND writes:
 SqlMapper.RemoveTypeMap(typeof(DateTimeOffset));
 SqlMapper.RemoveTypeMap(typeof(DateTimeOffset?));
 SqlMapper.RemoveTypeMap(typeof(Guid));
