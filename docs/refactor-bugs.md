@@ -133,7 +133,37 @@ status `-1`, even though the endpoint worked.
 `InvalidOperationException` that doesn't expose the response's status code — so the script recorded `-1`.
 
 **Fix.** Detect redirects with a raw `HttpWebRequest` (`AllowAutoRedirect = $false`) that reads the `302`
-directly. (A test-harness bug, not an API bug — `curl -I /` confirmed the real `302`.)
+directly, instead of `Invoke-WebRequest -MaximumRedirection 0`. (A test-harness bug, not an API bug —
+`curl -I /` confirmed the real `302`.)
+
+**How the redirect is detected** — a small helper opens the request without following redirects and reads
+the status straight off the response:
+
+```powershell
+function Get-RawStatus {
+    param([string]$Url)
+    $req = [System.Net.HttpWebRequest]::Create($Url)
+    $req.AllowAutoRedirect = $false          # don't follow the 302 — we want to SEE it
+    $req.Method = 'GET'
+    try {
+        $resp = $req.GetResponse()           # for a 3xx this returns normally (no throw)
+        $code = [int]$resp.StatusCode
+        $resp.Close()
+    }
+    catch [System.Net.WebException] {
+        # 4xx/5xx land here — and, unlike Invoke-WebRequest in 5.1, the response IS available
+        if ($_.Exception.Response) { $code = [int]$_.Exception.Response.StatusCode } else { $code = -1 }
+    }
+    return $code
+}
+
+# usage: returns 302 directly
+Get-RawStatus "$BaseUrl/"
+```
+
+With `AllowAutoRedirect = $false`, `HttpWebRequest.GetResponse()` treats a 3xx as a completed response
+and returns it, so the `302` is read directly from `$resp.StatusCode` — no exception, no lost status. The
+`catch` is only for genuine 4xx/5xx errors, where the `WebException` still exposes `.Response.StatusCode`.
 
 ---
 
