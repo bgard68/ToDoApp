@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { CategoryApi } from '../lib/apiClient.js';
 import { DEFAULT_CATEGORY_COLOR } from '../lib/constants.js';
+import ColorPicker from './ColorPicker.jsx';
 
 const emptyDraft = { name: '', color: '#7fb2e6' };
 
@@ -82,11 +83,10 @@ export default function CategoryManager({ categories, onChanged, onClose }) {
         {categories.map((c) =>
           editingId === c.id ? (
             <li key={c.id} className="cat-manager__row cat-manager__row--edit">
-              <input
-                type="color"
+              <ColorPicker
                 value={editDraft.color}
-                onChange={(e) => setEditDraft({ ...editDraft, color: e.target.value })}
-                aria-label="Category color"
+                onChange={(color) => setEditDraft({ ...editDraft, color })}
+                label="Category color"
               />
               <input
                 type="text"
@@ -110,11 +110,10 @@ export default function CategoryManager({ categories, onChanged, onClose }) {
       </ul>
 
       <form className="cat-manager__add" onSubmit={handleCreate}>
-        <input
-          type="color"
+        <ColorPicker
           value={draft.color}
-          onChange={(e) => setDraft({ ...draft, color: e.target.value })}
-          aria-label="New category color"
+          onChange={(color) => setDraft({ ...draft, color })}
+          label="New category color"
         />
         <input
           type="text"
