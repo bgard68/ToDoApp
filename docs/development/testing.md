@@ -394,8 +394,19 @@ an install) and let npm regenerate it.
 and **commit both together in the same change**. The installed `node_modules/` folder itself is *not*
 committed — it's rebuilt from these two files and stays in `.gitignore`.
 
+### 5.1 Auditing dependencies for vulnerabilities
+
+Keeping the lockfile pinned is only half the story — you also need to know when a pinned version has
+a **known vulnerability**. `npm audit` (run in `frontend/`) cross-references the installed tree
+against the GitHub Advisory Database and reports severity, whether each finding is a dev or prod
+dependency, and the version that fixes it. The full workflow — reading the report, applying fixes
+(including semver-major bumps that `npm audit fix` won't touch), and a worked example of the
+**Vite 8 / Vitest 4 upgrade that cleared 5 findings** — is in its own guide:
+
+**→ [Frontend dependency audit](dependency-audit.md).**
+
 ---
 
-_See also: [CI/CD pipeline testing](../deployment/pipeline.md) · [Architecture & practices assessment](../architecture/assessment.md) · [Lessons learned](../lessons.md)._
+_See also: [Dependency audit](dependency-audit.md) · [CI/CD pipeline testing](../deployment/pipeline.md) · [Architecture & practices assessment](../architecture/assessment.md) · [Lessons learned](../lessons.md)._
 
 > **← Back to the main [README](../../README.md).**

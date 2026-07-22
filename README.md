@@ -127,6 +127,7 @@ with the **[Azure guide](docs/deployment/azure.md)**.
 - **[Tech stack](docs/architecture/tech-stack.md)** — the full stack (backend, frontend, data, auth, testing, hosting, CI/CD) with a one-line explanation of what each technology does and why.
 - **[API reference](docs/architecture/api-reference.md)** — the HTTP surface: the auth/authorization model, every endpoint with its auth requirement, how write conflicts are reported (409), and production-hardening notes.
 - **[Request flow: login → board](docs/architecture/request-flow.md)** — a worked, end-to-end trace of one real path through the app, with a sequence diagram and the exact files/handlers involved.
+- **[Database schema](docs/architecture/database-schema.md)** — the physical data model: all five tables (Users, TodoItems, Categories, RefreshTokens, ExternalLogins) with their columns, keys, indexes, foreign-key cascade rules, an ER diagram, and the seed data.
 - **[Database portability](docs/architecture/database-portability.md)** — keeping behavior identical across relational providers (SQLite / SQL Server / PostgreSQL): the provider switch, collation & cascade gotchas, and what a non-relational port would take.
 - **[Onion architecture diagram](docs/architecture/onion-architecture.svg)** — the layered dependency diagram used above.
 - **[Architecture & practices assessment](docs/architecture/assessment.md)** — an evidence-based review of how well the project adheres to Clean Architecture, SOLID, design patterns, and CI/CD best practices.
@@ -135,7 +136,8 @@ with the **[Azure guide](docs/deployment/azure.md)**.
 
 - **[Local development](docs/development/local-dev.md)** — build and run the app, supply the JWT signing key, call the API by hand (Swagger / curl / PowerShell), the `401` troubleshooting playbook, and the local database story.
 - **[Testing guide](docs/development/testing.md)** — how the frontend (Vitest + RTL) and API (xUnit unit + `WebApplicationFactory` integration) suites are set up, step-by-step instructions for adding a new test, and the deploy gate that blocks a release when tests fail.
-- **[API smoke test](scripts/README.md)** — `scripts/todoapp-smoketest.ps1`: an end-to-end PowerShell check that hits every endpoint against a running instance, how to run it, and why a green run is a mix of expected status codes (not all 200).
+- **[API smoke test](scripts/README.md)** — `scripts/todoapp-smoketest.ps1`: an end-to-end PowerShell check that hits every endpoint against a running instance, how to run it, why a green run is a mix of expected status codes (not all 200), and why Google sign-in is skipped by default (with the fake-validator pattern that makes it testable).
+- **[Dependency audit](docs/development/dependency-audit.md)** — running `npm audit` on the frontend, reading the report (dev vs. prod, severity, semver-major fixes), applying upgrades safely, and a worked example of the Vite 8 / Vitest 4 upgrade that cleared all findings.
 - **[Frontend & UI notes](docs/development/frontend-notes.md)** — app-side engineering lessons: optimistic UI and the reload-order bug, the touch-blind HTML5 drag-and-drop, the masked `DateField`, the mobile **dark-mode force-dark** fix (`color-scheme: only light`, with before/after screenshots), theming the Google sign-in button, and SPA cache headers / in-app-browser caveats.
 
 **Reference**
