@@ -1,5 +1,7 @@
 # GitHub Actions workflows & how to run them
 
+> **← Back to the main [README](../README.md).**
+
 Four workflows live in [`.github/workflows/`](../.github/workflows/). This branch adds one change to
 the API pipeline so **either the EF Core (`main`) or Dapper (`refactor/dapper`) branch can be deployed
 to the same Azure App Service on demand.**

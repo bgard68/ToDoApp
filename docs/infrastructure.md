@@ -1,5 +1,7 @@
 # Infrastructure — the Dapper data layer
 
+> **← Back to the main [README](../README.md).**
+
 How persistence works on the `refactor/dapper` branch. All of this lives under
 `src/TodoApp.Infrastructure/Persistence/`.
 

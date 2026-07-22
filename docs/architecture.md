@@ -1,5 +1,7 @@
 # Architecture (Dapper edition)
 
+> **← Back to the main [README](../README.md).**
+
 > This is the **`refactor/dapper`** branch: the same Clean-Architecture Todo app as `main`, with the
 > persistence layer rebuilt on **Dapper** instead of EF Core. Everything outside the data layer —
 > the domain model, the API contract, auth, and the React frontend — is unchanged. For *why* and

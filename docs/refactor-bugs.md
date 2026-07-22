@@ -1,5 +1,7 @@
 # Bugs encountered during the Dapper refactor (and how they were fixed)
 
+> **← Back to the main [README](../README.md).**
+
 A running log of the real problems hit while replacing EF Core with Dapper — found by the automated
 test suite and by running the smoke test — with the root cause and fix for each. All are fixed on this
 branch; the suite (36 unit + 17 integration) and the 37-check smoke test are green.
