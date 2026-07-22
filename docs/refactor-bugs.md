@@ -62,6 +62,50 @@ The file survives connections opening and closing across requests, the app's own
 schema, and the temp file is deleted on dispose. (The unit harness still uses one shared in-memory
 connection, but there a single `IDbConnectionContext` is reused, so the connection stays open.)
 
+**Steps taken** in `tests/…IntegrationTests/CustomWebApplicationFactory.cs`:
+
+1. **Removed the EF-era service swap.** Deleted the old code that pulled
+   `DbContextOptions<ApplicationDbContext>` / `ApplicationDbContext` out of the service collection and
+   re-registered a DbContext bound to a shared in-memory `SqliteConnection` — that whole approach goes
+   away with EF Core.
+2. **Gave each factory instance its own database file**, so parallel test classes stay isolated:
+
+   ```csharp
+   private readonly string _databasePath =
+       Path.Combine(Path.GetTempPath(), $"todoapp-it-{Guid.NewGuid():N}.db");
+   ```
+
+3. **Pointed the real wiring at it via config override** — no service swapping, so the production
+   `DbConnectionFactory` is exercised as-is:
+
+   ```csharp
+   protected override void ConfigureWebHost(IWebHostBuilder builder) =>
+       builder.ConfigureAppConfiguration((_, config) =>
+           config.AddInMemoryCollection(new Dictionary<string, string?>
+           {
+               ["Database:Provider"] = "Sqlite",
+               ["ConnectionStrings:DefaultConnection"] = $"Data Source={_databasePath}",
+           }));
+   ```
+
+   The app's own startup path (`DbInitializer` → `SchemaInitializer`) then builds the schema and seeds
+   the demo data on the file DB — real code, not a test double.
+4. **Cleaned up on dispose** — release pooled handles first, then delete the file (best-effort):
+
+   ```csharp
+   protected override void Dispose(bool disposing)
+   {
+       base.Dispose(disposing);
+       if (disposing)
+       {
+           SqliteConnection.ClearAllPools();
+           try { File.Delete(_databasePath); } catch { /* temp file — harmless if it lingers */ }
+       }
+   }
+   ```
+
+5. **Re-ran the suite** — all 17 integration tests passed against the file-backed database.
+
 ---
 
 ## 4. SQLite foreign keys were off — `ON DELETE SET NULL` didn't fire
