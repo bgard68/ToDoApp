@@ -1,5 +1,4 @@
 using MediatR;
-using Microsoft.EntityFrameworkCore;
 using TodoApp.Application.Common.Exceptions;
 using TodoApp.Application.Common.Interfaces;
 using TodoApp.Domain.Entities;
@@ -8,12 +7,12 @@ namespace TodoApp.Application.Categories.Commands.DeleteCategory;
 
 public class DeleteCategoryCommandHandler : IRequestHandler<DeleteCategoryCommand>
 {
-    private readonly IApplicationDbContext _db;
+    private readonly ICategoryRepository _categories;
     private readonly ICurrentUserService _currentUser;
 
-    public DeleteCategoryCommandHandler(IApplicationDbContext db, ICurrentUserService currentUser)
+    public DeleteCategoryCommandHandler(ICategoryRepository categories, ICurrentUserService currentUser)
     {
-        _db = db;
+        _categories = categories;
         _currentUser = currentUser;
     }
 
@@ -21,12 +20,10 @@ public class DeleteCategoryCommandHandler : IRequestHandler<DeleteCategoryComman
     {
         var userId = _currentUser.UserId ?? throw new UnauthorizedException();
 
-        var category = await _db.Categories
-            .FirstOrDefaultAsync(c => c.Id == request.Id && c.UserId == userId, cancellationToken)
+        var category = await _categories.GetByIdAsync(request.Id, userId, cancellationToken)
             ?? throw new NotFoundException(nameof(Category), request.Id);
 
         // Tasks that referenced this category are left uncategorized (FK ON DELETE SET NULL).
-        _db.Categories.Remove(category);
-        await _db.SaveChangesAsync(cancellationToken);
+        await _categories.DeleteAsync(category.Id, userId, cancellationToken);
     }
 }

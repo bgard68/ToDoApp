@@ -16,12 +16,12 @@ public class TodoOwnershipTests
 {
     private readonly FakeDateTimeProvider _clock = new();
 
-    private (int user1, int user2) SeedTwoUsers(TestDatabase db)
+    private async Task<(int user1, int user2)> SeedTwoUsersAsync(TestDatabase db)
     {
         var u1 = new User("u1@x.com", "hash", _clock.UtcNow);
         var u2 = new User("u2@x.com", "hash", _clock.UtcNow);
-        db.Context.Users.AddRange(u1, u2);
-        db.Context.SaveChanges();
+        await db.Users.AddAsync(u1, CancellationToken.None);
+        await db.Users.AddAsync(u2, CancellationToken.None);
         return (u1.Id, u2.Id);
     }
 
@@ -29,29 +29,33 @@ public class TodoOwnershipTests
     public async Task Create_AssignsTodoToCurrentUser()
     {
         using var db = new TestDatabase();
-        var (user1, _) = SeedTwoUsers(db);
+        var (user1, _) = await SeedTwoUsersAsync(db);
         var current = new FakeCurrentUserService { UserId = user1 };
-        var handler = new CreateTodoCommandHandler(db.Context, current, _clock);
+        var handler = new CreateTodoCommandHandler(db.Todos, db.Categories, current, _clock);
 
         var result = await handler.Handle(new CreateTodoCommand { Title = "Mine" }, CancellationToken.None);
 
         result.Title.Should().Be("Mine");
-        using var read = db.NewContext();
-        read.TodoItems.Single().UserId.Should().Be(user1);
+        (await db.Todos.GetForUserAsync(user1, TodoFilter.All, null, CancellationToken.None))
+            .Should().ContainSingle().Which.UserId.Should().Be(user1);
     }
 
     [Fact]
     public async Task GetTodos_ReturnsOnlyCurrentUsersItems()
     {
         using var db = new TestDatabase();
-        var (user1, user2) = SeedTwoUsers(db);
-        db.Context.TodoItems.AddRange(
+        var (user1, user2) = await SeedTwoUsersAsync(db);
+        foreach (var item in new[]
+        {
             new TodoItem(user1, "A1", null, Priority.Low, null, null, _clock.UtcNow),
             new TodoItem(user1, "A2", null, Priority.Low, null, null, _clock.UtcNow),
-            new TodoItem(user2, "B1", null, Priority.Low, null, null, _clock.UtcNow));
-        db.Context.SaveChanges();
+            new TodoItem(user2, "B1", null, Priority.Low, null, null, _clock.UtcNow)
+        })
+        {
+            await db.Todos.AddAsync(item, CancellationToken.None);
+        }
 
-        var handler = new GetTodosQueryHandler(db.NewContext(), new FakeCurrentUserService { UserId = user1 });
+        var handler = new GetTodosQueryHandler(db.Todos, new FakeCurrentUserService { UserId = user1 });
         var result = await handler.Handle(new GetTodosQuery(), CancellationToken.None);
 
         result.Should().HaveCount(2);
@@ -62,12 +66,11 @@ public class TodoOwnershipTests
     public async Task Update_AnotherUsersTodo_ThrowsNotFound()
     {
         using var db = new TestDatabase();
-        var (user1, user2) = SeedTwoUsers(db);
+        var (user1, user2) = await SeedTwoUsersAsync(db);
         var todo = new TodoItem(user2, "B1", null, Priority.Low, null, null, _clock.UtcNow);
-        db.Context.TodoItems.Add(todo);
-        db.Context.SaveChanges();
+        await db.Todos.AddAsync(todo, CancellationToken.None);
 
-        var handler = new UpdateTodoCommandHandler(db.NewContext(), new FakeCurrentUserService { UserId = user1 }, _clock);
+        var handler = new UpdateTodoCommandHandler(db.Todos, db.Categories, new FakeCurrentUserService { UserId = user1 }, _clock);
         var act = () => handler.Handle(
             new UpdateTodoCommand { Id = todo.Id, Title = "Hijack", Priority = Priority.Low },
             CancellationToken.None);
@@ -79,12 +82,11 @@ public class TodoOwnershipTests
     public async Task Delete_AnotherUsersTodo_ThrowsNotFound()
     {
         using var db = new TestDatabase();
-        var (user1, user2) = SeedTwoUsers(db);
+        var (user1, user2) = await SeedTwoUsersAsync(db);
         var todo = new TodoItem(user2, "B1", null, Priority.Low, null, null, _clock.UtcNow);
-        db.Context.TodoItems.Add(todo);
-        db.Context.SaveChanges();
+        await db.Todos.AddAsync(todo, CancellationToken.None);
 
-        var handler = new DeleteTodoCommandHandler(db.NewContext(), new FakeCurrentUserService { UserId = user1 });
+        var handler = new DeleteTodoCommandHandler(db.Todos, new FakeCurrentUserService { UserId = user1 });
         var act = () => handler.Handle(new DeleteTodoCommand(todo.Id), CancellationToken.None);
 
         await act.Should().ThrowAsync<NotFoundException>();
@@ -94,12 +96,11 @@ public class TodoOwnershipTests
     public async Task GetById_AnotherUsersTodo_ThrowsNotFound()
     {
         using var db = new TestDatabase();
-        var (user1, user2) = SeedTwoUsers(db);
+        var (user1, user2) = await SeedTwoUsersAsync(db);
         var todo = new TodoItem(user2, "B1", null, Priority.Low, null, null, _clock.UtcNow);
-        db.Context.TodoItems.Add(todo);
-        db.Context.SaveChanges();
+        await db.Todos.AddAsync(todo, CancellationToken.None);
 
-        var handler = new GetTodoByIdQueryHandler(db.NewContext(), new FakeCurrentUserService { UserId = user1 });
+        var handler = new GetTodoByIdQueryHandler(db.Todos, new FakeCurrentUserService { UserId = user1 });
         var act = () => handler.Handle(new GetTodoByIdQuery(todo.Id), CancellationToken.None);
 
         await act.Should().ThrowAsync<NotFoundException>();

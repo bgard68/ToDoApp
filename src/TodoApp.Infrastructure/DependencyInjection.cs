@@ -1,9 +1,10 @@
-using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using TodoApp.Application.Common.Interfaces;
 using TodoApp.Infrastructure.Authentication;
 using TodoApp.Infrastructure.Persistence;
+using TodoApp.Infrastructure.Persistence.Dapper;
+using TodoApp.Infrastructure.Persistence.Repositories;
 using TodoApp.Infrastructure.Time;
 
 namespace TodoApp.Infrastructure;
@@ -14,35 +15,22 @@ public static class DependencyInjection
         this IServiceCollection services,
         IConfiguration configuration)
     {
-        // Provider is chosen by config so the same build runs on SQLite locally and Azure SQL
-        // (SQL Server) in production — set Database:Provider=SqlServer + a connection string.
-        var provider = configuration.GetValue<string>("Database:Provider") ?? "Sqlite";
+        // Register Dapper's global type handlers (DateTimeOffset<->ticks, Guid<->text) once.
+        DapperConfig.Register();
 
-        services.AddDbContext<ApplicationDbContext>(options =>
-        {
-            if (provider.Equals("SqlServer", StringComparison.OrdinalIgnoreCase))
-            {
-                var sqlConnection = configuration.GetConnectionString("DefaultConnection")
-                    ?? throw new InvalidOperationException(
-                        "ConnectionStrings:DefaultConnection is required when Database:Provider is SqlServer.");
-                // Retry transient failures — notably Azure SQL serverless "waking from
-                // auto-pause" connection timeouts (error -2), so the first request after the
-                // database has been idle succeeds instead of throwing a 500.
-                options.UseSqlServer(sqlConnection, sql => sql.EnableRetryOnFailure(
-                    maxRetryCount: 8,
-                    maxRetryDelay: TimeSpan.FromSeconds(15),
-                    errorNumbersToAdd: new[] { -2 }));
-            }
-            else
-            {
-                var sqliteConnection = configuration.GetConnectionString("DefaultConnection")
-                    ?? "Data Source=todoapp.db";
-                options.UseSqlite(sqliteConnection);
-            }
-        });
+        // Data access. The connection factory (singleton) picks SQLite or SQL Server from
+        // Database:Provider; the connection context + unit of work are per-scope so all
+        // repositories in a request share one connection and can enlist in one transaction.
+        services.AddSingleton<IDbConnectionFactory, DbConnectionFactory>();
+        services.AddScoped<IDbConnectionContext, DbConnectionContext>();
+        services.AddScoped<IUnitOfWork, UnitOfWork>();
+        services.AddScoped<ISchemaInitializer, SchemaInitializer>();
 
-        services.AddScoped<IApplicationDbContext>(provider =>
-            provider.GetRequiredService<ApplicationDbContext>());
+        services.AddScoped<ITodoRepository, TodoRepository>();
+        services.AddScoped<ICategoryRepository, CategoryRepository>();
+        services.AddScoped<IUserRepository, UserRepository>();
+        services.AddScoped<IRefreshTokenRepository, RefreshTokenRepository>();
+        services.AddScoped<IExternalLoginRepository, ExternalLoginRepository>();
 
         // System clock abstraction (injected wherever timestamps are needed).
         services.AddSingleton<IDateTimeProvider, DateTimeProvider>();

@@ -12,19 +12,23 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="10.0.*" />
-    <PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" Version="10.0.*" />
-    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.*">
-      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
-      <PrivateAssets>all</PrivateAssets>
-    </PackageReference>
+    <!-- Dapper data access. Providers: Microsoft.Data.Sqlite (local/tests) and
+         Microsoft.Data.SqlClient (Azure SQL), selected at runtime by Database:Provider. -->
+    <PackageReference Include="Dapper" Version="2.1.*" />
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.*" />
+    <PackageReference Include="Microsoft.Data.SqlClient" Version="6.*" />
     <PackageReference Include="System.IdentityModel.Tokens.Jwt" Version="8.*" />
     <PackageReference Include="Google.Apis.Auth" Version="1.*" />
     <!-- Security override: pin the patched native SQLite (CVE-2025-6965 / NU1903).
-         Overrides the vulnerable transitive SQLitePCLRaw.lib.e_sqlite3 2.1.11; the managed
-         core stays at 2.1.11 (compatible with EF Core 10). Remove once Microsoft.Data.Sqlite
-         ships a fixed dependency. -->
+         Overrides the vulnerable transitive SQLitePCLRaw.lib.e_sqlite3 pulled in by
+         Microsoft.Data.Sqlite. Remove once Microsoft.Data.Sqlite ships a fixed dependency. -->
     <PackageReference Include="SQLitePCLRaw.lib.e_sqlite3" Version="3.50.3" />
+  </ItemGroup>
+
+  <!-- DDL scripts loaded by SchemaInitializer at runtime. -->
+  <ItemGroup>
+    <EmbeddedResource Include="Persistence\Schema\Schema.Sqlite.sql" />
+    <EmbeddedResource Include="Persistence\Schema\Schema.SqlServer.sql" />
   </ItemGroup>
 
   <ItemGroup>

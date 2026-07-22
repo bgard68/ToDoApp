@@ -15,13 +15,18 @@ public class RegisterLoginTests
     private readonly FakeJwtTokenService _jwt = new();
     private readonly FakeDateTimeProvider _clock = new();
 
+    private RegisterCommandHandler Register(TestDatabase db) =>
+        new(db.Users, db.Categories, db.RefreshTokens, db.UnitOfWork, _hasher, _jwt, _clock);
+
+    private LoginCommandHandler Login(TestDatabase db) =>
+        new(db.Users, db.RefreshTokens, _hasher, _jwt, _clock);
+
     [Fact]
     public async Task Register_CreatesUserAndIssuesTokens()
     {
         using var db = new TestDatabase();
-        var handler = new RegisterCommandHandler(db.Context, _hasher, _jwt, _clock);
 
-        var response = await handler.Handle(
+        var response = await Register(db).Handle(
             new RegisterCommand { Email = "New@Example.com", Password = "Password1" },
             CancellationToken.None);
 
@@ -29,20 +34,17 @@ public class RegisterLoginTests
         response.RefreshToken.Should().NotBeNullOrEmpty();
         response.User.Email.Should().Be("new@example.com");
 
-        using var read = db.NewContext();
-        read.Users.Should().ContainSingle();
-        read.RefreshTokens.Should().ContainSingle();
+        (await db.CountAsync("Users")).Should().Be(1);
+        (await db.CountAsync("RefreshTokens")).Should().Be(1);
     }
 
     [Fact]
     public async Task Register_DuplicateEmail_ThrowsConflict()
     {
         using var db = new TestDatabase();
-        db.Context.Users.Add(new User("dupe@example.com", _hasher.Hash("Password1"), _clock.UtcNow));
-        db.Context.SaveChanges();
+        await db.Users.AddAsync(new User("dupe@example.com", _hasher.Hash("Password1"), _clock.UtcNow), CancellationToken.None);
 
-        var handler = new RegisterCommandHandler(db.NewContext(), _hasher, _jwt, _clock);
-        var act = () => handler.Handle(
+        var act = () => Register(db).Handle(
             new RegisterCommand { Email = "dupe@example.com", Password = "Password1" },
             CancellationToken.None);
 
@@ -53,11 +55,9 @@ public class RegisterLoginTests
     public async Task Login_WithValidCredentials_ReturnsTokens()
     {
         using var db = new TestDatabase();
-        db.Context.Users.Add(new User("user@example.com", _hasher.Hash("Password1"), _clock.UtcNow));
-        db.Context.SaveChanges();
+        await db.Users.AddAsync(new User("user@example.com", _hasher.Hash("Password1"), _clock.UtcNow), CancellationToken.None);
 
-        var handler = new LoginCommandHandler(db.NewContext(), _hasher, _jwt, _clock);
-        var response = await handler.Handle(
+        var response = await Login(db).Handle(
             new LoginCommand { Email = "user@example.com", Password = "Password1" },
             CancellationToken.None);
 
@@ -68,11 +68,9 @@ public class RegisterLoginTests
     public async Task Login_WithWrongPassword_ThrowsUnauthorized()
     {
         using var db = new TestDatabase();
-        db.Context.Users.Add(new User("user@example.com", _hasher.Hash("Password1"), _clock.UtcNow));
-        db.Context.SaveChanges();
+        await db.Users.AddAsync(new User("user@example.com", _hasher.Hash("Password1"), _clock.UtcNow), CancellationToken.None);
 
-        var handler = new LoginCommandHandler(db.NewContext(), _hasher, _jwt, _clock);
-        var act = () => handler.Handle(
+        var act = () => Login(db).Handle(
             new LoginCommand { Email = "user@example.com", Password = "WrongPass1" },
             CancellationToken.None);
 
@@ -83,11 +81,9 @@ public class RegisterLoginTests
     public async Task Login_ExternalOnlyUser_ThrowsUnauthorized()
     {
         using var db = new TestDatabase();
-        db.Context.Users.Add(User.CreateExternal("google@example.com", _clock.UtcNow));
-        db.Context.SaveChanges();
+        await db.Users.AddAsync(User.CreateExternal("google@example.com", _clock.UtcNow), CancellationToken.None);
 
-        var handler = new LoginCommandHandler(db.NewContext(), _hasher, _jwt, _clock);
-        var act = () => handler.Handle(
+        var act = () => Login(db).Handle(
             new LoginCommand { Email = "google@example.com", Password = "anything1" },
             CancellationToken.None);
 

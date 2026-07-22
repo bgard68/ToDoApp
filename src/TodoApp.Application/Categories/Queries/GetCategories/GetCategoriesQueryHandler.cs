@@ -1,5 +1,4 @@
 using MediatR;
-using Microsoft.EntityFrameworkCore;
 using TodoApp.Application.Categories.Dtos;
 using TodoApp.Application.Common.Exceptions;
 using TodoApp.Application.Common.Interfaces;
@@ -8,12 +7,12 @@ namespace TodoApp.Application.Categories.Queries.GetCategories;
 
 public class GetCategoriesQueryHandler : IRequestHandler<GetCategoriesQuery, IReadOnlyList<CategoryDto>>
 {
-    private readonly IApplicationDbContext _context;
+    private readonly ICategoryRepository _categories;
     private readonly ICurrentUserService _currentUser;
 
-    public GetCategoriesQueryHandler(IApplicationDbContext context, ICurrentUserService currentUser)
+    public GetCategoriesQueryHandler(ICategoryRepository categories, ICurrentUserService currentUser)
     {
-        _context = context;
+        _categories = categories;
         _currentUser = currentUser;
     }
 
@@ -21,11 +20,7 @@ public class GetCategoriesQueryHandler : IRequestHandler<GetCategoriesQuery, IRe
     {
         var userId = _currentUser.UserId ?? throw new UnauthorizedException();
 
-        var categories = await _context.Categories
-            .AsNoTracking()
-            .Where(c => c.UserId == userId)
-            .OrderBy(c => c.Name)
-            .ToListAsync(cancellationToken);
+        var categories = await _categories.GetForUserAsync(userId, cancellationToken);
 
         return categories.Select(CategoryDto.FromEntity).ToList();
     }

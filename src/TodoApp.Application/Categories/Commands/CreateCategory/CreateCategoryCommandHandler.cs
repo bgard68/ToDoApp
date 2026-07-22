@@ -1,5 +1,4 @@
 using MediatR;
-using Microsoft.EntityFrameworkCore;
 using TodoApp.Application.Categories.Dtos;
 using TodoApp.Application.Common.Exceptions;
 using TodoApp.Application.Common.Interfaces;
@@ -9,16 +8,16 @@ namespace TodoApp.Application.Categories.Commands.CreateCategory;
 
 public class CreateCategoryCommandHandler : IRequestHandler<CreateCategoryCommand, CategoryDto>
 {
-    private readonly IApplicationDbContext _db;
+    private readonly ICategoryRepository _categories;
     private readonly ICurrentUserService _currentUser;
     private readonly IDateTimeProvider _dateTime;
 
     public CreateCategoryCommandHandler(
-        IApplicationDbContext db,
+        ICategoryRepository categories,
         ICurrentUserService currentUser,
         IDateTimeProvider dateTime)
     {
-        _db = db;
+        _categories = categories;
         _currentUser = currentUser;
         _dateTime = dateTime;
     }
@@ -28,15 +27,13 @@ public class CreateCategoryCommandHandler : IRequestHandler<CreateCategoryComman
         var userId = _currentUser.UserId ?? throw new UnauthorizedException();
 
         var category = new Category(userId, request.Name, request.Color, _dateTime.UtcNow);
-        _db.Categories.Add(category);
 
         try
         {
-            await _db.SaveChangesAsync(cancellationToken);
+            await _categories.AddAsync(category, cancellationToken);
         }
-        catch (DbUpdateException)
+        catch (DuplicateKeyException)
         {
-            // Unique (UserId, Name) index violation.
             throw new ConflictException("A category with this name already exists.");
         }
 

@@ -1,5 +1,4 @@
 using MediatR;
-using Microsoft.EntityFrameworkCore;
 using TodoApp.Application.Auth.Common;
 using TodoApp.Application.Auth.Dtos;
 using TodoApp.Application.Common.Exceptions;
@@ -10,18 +9,21 @@ namespace TodoApp.Application.Auth.Commands.Login;
 
 public class LoginCommandHandler : IRequestHandler<LoginCommand, AuthResponse>
 {
-    private readonly IApplicationDbContext _db;
+    private readonly IUserRepository _users;
+    private readonly IRefreshTokenRepository _refreshTokens;
     private readonly IPasswordHasher _hasher;
     private readonly IJwtTokenService _jwt;
     private readonly IDateTimeProvider _dateTime;
 
     public LoginCommandHandler(
-        IApplicationDbContext db,
+        IUserRepository users,
+        IRefreshTokenRepository refreshTokens,
         IPasswordHasher hasher,
         IJwtTokenService jwt,
         IDateTimeProvider dateTime)
     {
-        _db = db;
+        _users = users;
+        _refreshTokens = refreshTokens;
         _hasher = hasher;
         _jwt = jwt;
         _dateTime = dateTime;
@@ -31,7 +33,7 @@ public class LoginCommandHandler : IRequestHandler<LoginCommand, AuthResponse>
     {
         var email = User.NormalizeEmail(request.Email);
 
-        var user = await _db.Users.FirstOrDefaultAsync(u => u.Email == email, cancellationToken);
+        var user = await _users.GetByEmailAsync(email, cancellationToken);
 
         // Accounts created via an external provider (e.g. Google) have no local password.
         var passwordOk = user?.PasswordHash is not null
@@ -47,9 +49,6 @@ public class LoginCommandHandler : IRequestHandler<LoginCommand, AuthResponse>
             throw new UnauthorizedException("This account has been disabled.");
         }
 
-        var response = TokenResponseFactory.Issue(user, _jwt, _db, _dateTime.UtcNow);
-        await _db.SaveChangesAsync(cancellationToken);
-
-        return response;
+        return await TokenResponseFactory.IssueAsync(user, _jwt, _refreshTokens, _dateTime.UtcNow, cancellationToken);
     }
 }

@@ -1,63 +1,62 @@
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
-using Microsoft.AspNetCore.TestHost;
 using Microsoft.Data.Sqlite;
-using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.DependencyInjection;
-using TodoApp.Infrastructure.Persistence;
+using Microsoft.Extensions.Configuration;
 
 namespace TodoApp.IntegrationTests;
 
 /// <summary>
-/// Hosts the real API in-process for integration tests. Each factory instance owns a
-/// private in-memory SQLite database (kept alive by a single open connection for the
-/// factory's lifetime). The DbContext is swapped via ConfigureTestServices, and the
-/// Development environment supplies a valid JWT signing key from appsettings.Development.json.
+/// Hosts the real API in-process for integration tests. Each factory instance owns a private,
+/// file-backed SQLite database in the temp directory; the app's own startup path builds the
+/// schema and seeds demo data via SchemaInitializer/DbInitializer, exercising the real Dapper
+/// wiring. A throwaway JWT signing key is supplied via environment variable.
 /// </summary>
 public class CustomWebApplicationFactory : WebApplicationFactory<Program>
 {
-    // A throwaway key used only by the test host. Supplied via an environment variable so
-    // no secret has to live in appsettings. The value is constant, so setting it from every
-    // factory instance is race-free even when test classes run in parallel.
+    // A throwaway key used only by the test host. Supplied via an environment variable so no
+    // secret has to live in appsettings. The value is constant, so setting it from every factory
+    // instance is race-free even when test classes run in parallel.
     private const string TestSigningKey =
         "integration-test-signing-key-that-is-definitely-long-enough-123456";
 
-    private readonly SqliteConnection _connection;
+    // A unique database file per factory instance keeps parallel test classes isolated.
+    private readonly string _databasePath =
+        Path.Combine(Path.GetTempPath(), $"todoapp-it-{Guid.NewGuid():N}.db");
 
     public CustomWebApplicationFactory()
     {
         Environment.SetEnvironmentVariable("Jwt__Key", TestSigningKey);
-
-        _connection = new SqliteConnection("DataSource=:memory:");
-        _connection.Open();
     }
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
-        builder.ConfigureTestServices(services =>
+        // Point the real connection factory at this instance's private SQLite file.
+        builder.ConfigureAppConfiguration((_, config) =>
         {
-            // Replace the real (file-based) DbContext with our shared in-memory connection.
-            var toRemove = services
-                .Where(d => d.ServiceType == typeof(DbContextOptions<ApplicationDbContext>)
-                         || d.ServiceType == typeof(ApplicationDbContext))
-                .ToList();
-
-            foreach (var descriptor in toRemove)
+            config.AddInMemoryCollection(new Dictionary<string, string?>
             {
-                services.Remove(descriptor);
-            }
-
-            services.AddDbContext<ApplicationDbContext>(options => options.UseSqlite(_connection));
+                ["Database:Provider"] = "Sqlite",
+                ["ConnectionStrings:DefaultConnection"] = $"Data Source={_databasePath}"
+            });
         });
     }
 
     protected override void Dispose(bool disposing)
     {
+        base.Dispose(disposing);
+
         if (disposing)
         {
-            _connection.Dispose();
+            // Release pooled handles to the file before deleting it.
+            SqliteConnection.ClearAllPools();
+            try
+            {
+                File.Delete(_databasePath);
+            }
+            catch
+            {
+                // Best effort — the temp file is harmless if it lingers.
+            }
         }
-
-        base.Dispose(disposing);
     }
 }

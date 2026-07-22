@@ -9,8 +9,8 @@ namespace TodoApp.UnitTests.Todos;
 
 /// <summary>
 /// Verifies that ordering todos by DateTimeOffset columns works against real SQLite — which
-/// only succeeds because DateTimeOffset is stored as a UTC-tick long (the converter). Without
-/// it, the ORDER BY on DueDate/CreatedAt throws NotSupportedException at query translation.
+/// only succeeds because DateTimeOffset is stored as a UTC-tick long (the Dapper type handler).
+/// The round-trip test guards that the tick storage is lossless.
 /// </summary>
 public class GetTodosOrderingTests
 {
@@ -21,21 +21,24 @@ public class GetTodosOrderingTests
     {
         using var db = new TestDatabase();
         var user = new User("o@x.com", "hash", _clock.UtcNow);
-        db.Context.Users.Add(user);
-        db.Context.SaveChanges();
+        await db.Users.AddAsync(user, CancellationToken.None);
 
         var now = _clock.UtcNow;
         var done = new TodoItem(user.Id, "done", null, Priority.High, null, null, now);
         done.MoveTo(TodoStatus.Done, now);
 
-        db.Context.TodoItems.AddRange(
+        foreach (var item in new[]
+        {
             new TodoItem(user.Id, "high-due-later", null, Priority.High, null, now.AddDays(5), now),
             new TodoItem(user.Id, "high-due-soon", null, Priority.High, null, now.AddDays(1), now),
             new TodoItem(user.Id, "low-no-due", null, Priority.Low, null, null, now),
-            done);
-        db.Context.SaveChanges();
+            done
+        })
+        {
+            await db.Todos.AddAsync(item, CancellationToken.None);
+        }
 
-        var handler = new GetTodosQueryHandler(db.NewContext(), new FakeCurrentUserService { UserId = user.Id });
+        var handler = new GetTodosQueryHandler(db.Todos, new FakeCurrentUserService { UserId = user.Id });
         var result = await handler.Handle(new GetTodosQuery(), CancellationToken.None);
 
         // High priority before Low; within priority, earliest due date first.
@@ -48,15 +51,12 @@ public class GetTodosOrderingTests
     {
         using var db = new TestDatabase();
         var user = new User("r@x.com", "hash", _clock.UtcNow);
-        db.Context.Users.Add(user);
-        db.Context.SaveChanges();
+        await db.Users.AddAsync(user, CancellationToken.None);
 
         var when = new DateTimeOffset(2026, 3, 15, 8, 30, 45, 123, TimeSpan.Zero);
-        db.Context.TodoItems.Add(new TodoItem(user.Id, "x", null, Priority.Low, null, when, when));
-        db.Context.SaveChanges();
+        await db.Todos.AddAsync(new TodoItem(user.Id, "x", null, Priority.Low, null, when, when), CancellationToken.None);
 
-        using var read = db.NewContext();
-        var loaded = read.TodoItems.Single();
+        var loaded = (await db.Todos.GetForUserAsync(user.Id, TodoFilter.All, null, CancellationToken.None)).Single();
 
         loaded.CreatedAt.Should().Be(when);
         loaded.DueDate.Should().Be(when);

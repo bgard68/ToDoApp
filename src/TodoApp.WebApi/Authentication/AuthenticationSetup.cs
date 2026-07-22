@@ -1,7 +1,6 @@
 using System.Security.Claims;
 using System.Text;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using TodoApp.Application.Common.Interfaces;
 using TodoApp.Infrastructure.Authentication;
@@ -52,8 +51,8 @@ public static class AuthenticationSetup
                 {
                     OnTokenValidated = async context =>
                     {
-                        var db = context.HttpContext.RequestServices
-                            .GetRequiredService<IApplicationDbContext>();
+                        var users = context.HttpContext.RequestServices
+                            .GetRequiredService<IUserRepository>();
 
                         var principal = context.Principal;
                         var sub = principal?.FindFirstValue("sub");
@@ -65,9 +64,7 @@ public static class AuthenticationSetup
                             return;
                         }
 
-                        var user = await db.Users
-                            .AsNoTracking()
-                            .FirstOrDefaultAsync(u => u.Id == userId);
+                        var user = await users.GetByIdAsync(userId, context.HttpContext.RequestAborted);
 
                         if (user is null || !user.IsActive || user.SecurityStamp != stamp)
                         {

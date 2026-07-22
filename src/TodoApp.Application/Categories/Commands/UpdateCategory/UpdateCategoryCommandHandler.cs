@@ -1,5 +1,4 @@
 using MediatR;
-using Microsoft.EntityFrameworkCore;
 using TodoApp.Application.Categories.Dtos;
 using TodoApp.Application.Common.Exceptions;
 using TodoApp.Application.Common.Interfaces;
@@ -9,16 +8,16 @@ namespace TodoApp.Application.Categories.Commands.UpdateCategory;
 
 public class UpdateCategoryCommandHandler : IRequestHandler<UpdateCategoryCommand, CategoryDto>
 {
-    private readonly IApplicationDbContext _db;
+    private readonly ICategoryRepository _categories;
     private readonly ICurrentUserService _currentUser;
     private readonly IDateTimeProvider _dateTime;
 
     public UpdateCategoryCommandHandler(
-        IApplicationDbContext db,
+        ICategoryRepository categories,
         ICurrentUserService currentUser,
         IDateTimeProvider dateTime)
     {
-        _db = db;
+        _categories = categories;
         _currentUser = currentUser;
         _dateTime = dateTime;
     }
@@ -27,17 +26,16 @@ public class UpdateCategoryCommandHandler : IRequestHandler<UpdateCategoryComman
     {
         var userId = _currentUser.UserId ?? throw new UnauthorizedException();
 
-        var category = await _db.Categories
-            .FirstOrDefaultAsync(c => c.Id == request.Id && c.UserId == userId, cancellationToken)
+        var category = await _categories.GetByIdAsync(request.Id, userId, cancellationToken)
             ?? throw new NotFoundException(nameof(Category), request.Id);
 
         category.Update(request.Name, request.Color, _dateTime.UtcNow);
 
         try
         {
-            await _db.SaveChangesAsync(cancellationToken);
+            await _categories.UpdateAsync(category, cancellationToken);
         }
-        catch (DbUpdateException)
+        catch (DuplicateKeyException)
         {
             throw new ConflictException("A category with this name already exists.");
         }

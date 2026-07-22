@@ -13,26 +13,24 @@ public class ConcurrencyTests
 {
     private readonly FakeDateTimeProvider _clock = new();
 
-    private (int userId, TodoItem todo) Seed(TestDatabase db)
+    private async Task<(int userId, TodoItem todo)> SeedAsync(TestDatabase db)
     {
         var user = new User("c@x.com", "hash", _clock.UtcNow);
-        db.Context.Users.Add(user);
-        db.Context.SaveChanges();
+        await db.Users.AddAsync(user, CancellationToken.None);
 
         var todo = new TodoItem(user.Id, "Original", null, Priority.Low, null, null, _clock.UtcNow);
-        db.Context.TodoItems.Add(todo);
-        db.Context.SaveChanges();
+        await db.Todos.AddAsync(todo, CancellationToken.None);
         return (user.Id, todo);
     }
 
     private UpdateTodoCommandHandler Handler(TestDatabase db, int userId) =>
-        new(db.NewContext(), new FakeCurrentUserService { UserId = userId }, _clock);
+        new(db.Todos, db.Categories, new FakeCurrentUserService { UserId = userId }, _clock);
 
     [Fact]
     public async Task Update_WithStaleToken_ThrowsConcurrencyConflictWithCurrentValue()
     {
         using var db = new TestDatabase();
-        var (userId, todo) = Seed(db);
+        var (userId, todo) = await SeedAsync(db);
 
         var act = () => Handler(db, userId).Handle(new UpdateTodoCommand
         {
@@ -50,7 +48,7 @@ public class ConcurrencyTests
     public async Task Update_WithCurrentToken_Succeeds()
     {
         using var db = new TestDatabase();
-        var (userId, todo) = Seed(db);
+        var (userId, todo) = await SeedAsync(db);
 
         var result = await Handler(db, userId).Handle(new UpdateTodoCommand
         {
@@ -67,7 +65,7 @@ public class ConcurrencyTests
     public async Task Update_WithoutToken_Succeeds()
     {
         using var db = new TestDatabase();
-        var (userId, todo) = Seed(db);
+        var (userId, todo) = await SeedAsync(db);
 
         var result = await Handler(db, userId).Handle(new UpdateTodoCommand
         {

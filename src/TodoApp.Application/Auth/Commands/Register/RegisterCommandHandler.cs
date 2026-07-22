@@ -1,5 +1,4 @@
 using MediatR;
-using Microsoft.EntityFrameworkCore;
 using TodoApp.Application.Auth.Common;
 using TodoApp.Application.Auth.Dtos;
 using TodoApp.Application.Common.Exceptions;
@@ -10,18 +9,27 @@ namespace TodoApp.Application.Auth.Commands.Register;
 
 public class RegisterCommandHandler : IRequestHandler<RegisterCommand, AuthResponse>
 {
-    private readonly IApplicationDbContext _db;
+    private readonly IUserRepository _users;
+    private readonly ICategoryRepository _categories;
+    private readonly IRefreshTokenRepository _refreshTokens;
+    private readonly IUnitOfWork _unitOfWork;
     private readonly IPasswordHasher _hasher;
     private readonly IJwtTokenService _jwt;
     private readonly IDateTimeProvider _dateTime;
 
     public RegisterCommandHandler(
-        IApplicationDbContext db,
+        IUserRepository users,
+        ICategoryRepository categories,
+        IRefreshTokenRepository refreshTokens,
+        IUnitOfWork unitOfWork,
         IPasswordHasher hasher,
         IJwtTokenService jwt,
         IDateTimeProvider dateTime)
     {
-        _db = db;
+        _users = users;
+        _categories = categories;
+        _refreshTokens = refreshTokens;
+        _unitOfWork = unitOfWork;
         _hasher = hasher;
         _jwt = jwt;
         _dateTime = dateTime;
@@ -31,34 +39,29 @@ public class RegisterCommandHandler : IRequestHandler<RegisterCommand, AuthRespo
     {
         var email = User.NormalizeEmail(request.Email);
 
-        if (await _db.Users.AnyAsync(u => u.Email == email, cancellationToken))
+        if (await _users.EmailExistsAsync(email, cancellationToken))
         {
             throw new ConflictException("An account with this email already exists.");
         }
 
         var now = _dateTime.UtcNow;
         var user = new User(email, _hasher.Hash(request.Password), now);
-        _db.Users.Add(user);
 
-        // Persist first so the user has an Id for the refresh token's foreign key.
-        // The pre-check above handles the common case; this catch covers the race where a
-        // concurrent request inserts the same email between the check and here (the unique
-        // index on Email then rejects this insert).
+        // Insert the user, seed starter categories, and issue the first token pair atomically.
+        // The pre-check above handles the common case; the unique index on Email covers the race
+        // where a concurrent request inserts the same email, surfaced as DuplicateKeyException.
         try
         {
-            await _db.SaveChangesAsync(cancellationToken);
+            return await _unitOfWork.ExecuteInTransactionAsync(async ct =>
+            {
+                await _users.AddAsync(user, ct);
+                await _categories.AddRangeAsync(Category.DefaultsFor(user.Id, now), ct);
+                return await TokenResponseFactory.IssueAsync(user, _jwt, _refreshTokens, now, ct);
+            }, cancellationToken);
         }
-        catch (DbUpdateException)
+        catch (DuplicateKeyException)
         {
             throw new ConflictException("An account with this email already exists.");
         }
-
-        // Give the new user a starter set of categories to rename/recolor/delete.
-        _db.Categories.AddRange(Category.DefaultsFor(user.Id, now));
-
-        var response = TokenResponseFactory.Issue(user, _jwt, _db, now);
-        await _db.SaveChangesAsync(cancellationToken);
-
-        return response;
     }
 }

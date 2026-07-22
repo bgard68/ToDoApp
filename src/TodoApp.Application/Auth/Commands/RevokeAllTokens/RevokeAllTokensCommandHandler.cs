@@ -1,5 +1,4 @@
 using MediatR;
-using Microsoft.EntityFrameworkCore;
 using TodoApp.Application.Common.Exceptions;
 using TodoApp.Application.Common.Interfaces;
 using TodoApp.Domain.Entities;
@@ -9,16 +8,22 @@ namespace TodoApp.Application.Auth.Commands.RevokeAllTokens;
 
 public class RevokeAllTokensCommandHandler : IRequestHandler<RevokeAllTokensCommand>
 {
-    private readonly IApplicationDbContext _db;
+    private readonly IUserRepository _users;
+    private readonly IRefreshTokenRepository _refreshTokens;
+    private readonly IUnitOfWork _unitOfWork;
     private readonly ICurrentUserService _currentUser;
     private readonly IDateTimeProvider _dateTime;
 
     public RevokeAllTokensCommandHandler(
-        IApplicationDbContext db,
+        IUserRepository users,
+        IRefreshTokenRepository refreshTokens,
+        IUnitOfWork unitOfWork,
         ICurrentUserService currentUser,
         IDateTimeProvider dateTime)
     {
-        _db = db;
+        _users = users;
+        _refreshTokens = refreshTokens;
+        _unitOfWork = unitOfWork;
         _currentUser = currentUser;
         _dateTime = dateTime;
     }
@@ -34,7 +39,7 @@ public class RevokeAllTokensCommandHandler : IRequestHandler<RevokeAllTokensComm
             throw new ForbiddenAccessException();
         }
 
-        var user = await _db.Users.FirstOrDefaultAsync(u => u.Id == targetUserId, cancellationToken)
+        var user = await _users.GetByIdAsync(targetUserId, cancellationToken)
             ?? throw new NotFoundException(nameof(User), targetUserId);
 
         var now = _dateTime.UtcNow;
@@ -42,15 +47,16 @@ public class RevokeAllTokensCommandHandler : IRequestHandler<RevokeAllTokensComm
         // Rotating the stamp invalidates every previously issued access token for this user.
         user.RotateSecurityStamp(now);
 
-        var activeTokens = await _db.RefreshTokens
-            .Where(t => t.UserId == targetUserId && t.RevokedAt == null)
-            .ToListAsync(cancellationToken);
-
-        foreach (var token in activeTokens)
+        await _unitOfWork.ExecuteInTransactionAsync(async ct =>
         {
-            token.Revoke("All sessions revoked", now);
-        }
+            await _users.UpdateAsync(user, ct);
 
-        await _db.SaveChangesAsync(cancellationToken);
+            var activeTokens = await _refreshTokens.GetUnrevokedForUserAsync(targetUserId, ct);
+            foreach (var token in activeTokens)
+            {
+                token.Revoke("All sessions revoked", now);
+                await _refreshTokens.UpdateAsync(token, ct);
+            }
+        }, cancellationToken);
     }
 }

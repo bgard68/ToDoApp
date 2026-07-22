@@ -10,8 +10,6 @@
     <PackageReference Include="MediatR" Version="12.*" />
     <PackageReference Include="FluentValidation" Version="11.*" />
     <PackageReference Include="FluentValidation.DependencyInjectionExtensions" Version="11.*" />
-    <!-- EF Core abstractions (DbSet, async LINQ) are used by the query/command handlers. -->
-    <PackageReference Include="Microsoft.EntityFrameworkCore" Version="10.0.*" />
   </ItemGroup>
 
   <ItemGroup>

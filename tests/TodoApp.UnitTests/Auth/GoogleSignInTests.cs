@@ -1,5 +1,4 @@
 using FluentAssertions;
-using Microsoft.EntityFrameworkCore;
 using TodoApp.Application.Auth.Commands.GoogleSignIn;
 using TodoApp.Application.Common.Exceptions;
 using TodoApp.Application.Common.Models;
@@ -15,7 +14,8 @@ public class GoogleSignInTests
     private readonly FakeDateTimeProvider _clock = new();
 
     private GoogleSignInCommandHandler CreateHandler(TestDatabase db, GoogleUserInfo? payload) =>
-        new(db.NewContext(), new FakeGoogleTokenValidator { Result = payload }, _jwt, _clock);
+        new(db.Users, db.Categories, db.ExternalLogins, db.RefreshTokens, db.UnitOfWork,
+            new FakeGoogleTokenValidator { Result = payload }, _jwt, _clock);
 
     [Fact]
     public async Task Google_NewEmail_CreatesUserAndExternalLogin()
@@ -28,10 +28,10 @@ public class GoogleSignInTests
         response.User.Email.Should().Be("new@example.com");
         response.AccessToken.Should().NotBeNullOrEmpty();
 
-        using var read = db.NewContext();
-        (await read.Users.CountAsync()).Should().Be(1);
-        var login = await read.ExternalLogins.SingleAsync();
-        login.Provider.Should().Be("Google");
+        (await db.CountAsync("Users")).Should().Be(1);
+        var login = await db.ExternalLogins.GetByProviderKeyAsync("Google", "sub-1", CancellationToken.None);
+        login.Should().NotBeNull();
+        login!.Provider.Should().Be("Google");
         login.ProviderKey.Should().Be("sub-1");
     }
 
@@ -39,15 +39,13 @@ public class GoogleSignInTests
     public async Task Google_ExistingEmail_LinksToExistingUserWithoutDuplicating()
     {
         using var db = new TestDatabase();
-        db.Context.Users.Add(new User("existing@example.com", "hash", _clock.UtcNow));
-        db.Context.SaveChanges();
+        await db.Users.AddAsync(new User("existing@example.com", "hash", _clock.UtcNow), CancellationToken.None);
 
         var handler = CreateHandler(db, new GoogleUserInfo("sub-2", "existing@example.com", true, "Existing"));
         await handler.Handle(new GoogleSignInCommand { IdToken = "token" }, CancellationToken.None);
 
-        using var read = db.NewContext();
-        (await read.Users.CountAsync()).Should().Be(1);
-        (await read.ExternalLogins.CountAsync()).Should().Be(1);
+        (await db.CountAsync("Users")).Should().Be(1);
+        (await db.CountAsync("ExternalLogins")).Should().Be(1);
     }
 
     [Fact]

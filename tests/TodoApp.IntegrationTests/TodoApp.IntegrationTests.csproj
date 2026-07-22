@@ -14,7 +14,8 @@
     <PackageReference Include="xunit" Version="2.*" />
     <PackageReference Include="xunit.runner.visualstudio" Version="2.*" />
     <PackageReference Include="FluentAssertions" Version="6.*" />
-    <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="10.0.*" />
+    <!-- SQLite for the in-memory integration test database (schema built by SchemaInitializer). -->
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.*" />
     <!-- Security override: patched native SQLite (CVE-2025-6965 / NU1903). See Infrastructure.csproj. -->
     <PackageReference Include="SQLitePCLRaw.lib.e_sqlite3" Version="3.50.3" />
   </ItemGroup>

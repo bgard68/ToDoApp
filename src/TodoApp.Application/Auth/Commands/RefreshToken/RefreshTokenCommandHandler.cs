@@ -1,5 +1,4 @@
 using MediatR;
-using Microsoft.EntityFrameworkCore;
 using TodoApp.Application.Auth.Dtos;
 using TodoApp.Application.Common.Exceptions;
 using TodoApp.Application.Common.Interfaces;
@@ -9,13 +8,22 @@ namespace TodoApp.Application.Auth.Commands.RefreshToken;
 
 public class RefreshTokenCommandHandler : IRequestHandler<RefreshTokenCommand, AuthResponse>
 {
-    private readonly IApplicationDbContext _db;
+    private readonly IUserRepository _users;
+    private readonly IRefreshTokenRepository _refreshTokens;
+    private readonly IUnitOfWork _unitOfWork;
     private readonly IJwtTokenService _jwt;
     private readonly IDateTimeProvider _dateTime;
 
-    public RefreshTokenCommandHandler(IApplicationDbContext db, IJwtTokenService jwt, IDateTimeProvider dateTime)
+    public RefreshTokenCommandHandler(
+        IUserRepository users,
+        IRefreshTokenRepository refreshTokens,
+        IUnitOfWork unitOfWork,
+        IJwtTokenService jwt,
+        IDateTimeProvider dateTime)
     {
-        _db = db;
+        _users = users;
+        _refreshTokens = refreshTokens;
+        _unitOfWork = unitOfWork;
         _jwt = jwt;
         _dateTime = dateTime;
     }
@@ -25,13 +33,13 @@ public class RefreshTokenCommandHandler : IRequestHandler<RefreshTokenCommand, A
         var now = _dateTime.UtcNow;
         var hash = _jwt.HashToken(request.RefreshToken);
 
-        var token = await _db.RefreshTokens.FirstOrDefaultAsync(t => t.TokenHash == hash, cancellationToken);
+        var token = await _refreshTokens.GetByHashAsync(hash, cancellationToken);
         if (token is null)
         {
             throw new UnauthorizedException("Invalid refresh token.");
         }
 
-        var user = await _db.Users.FirstOrDefaultAsync(u => u.Id == token.UserId, cancellationToken);
+        var user = await _users.GetByIdAsync(token.UserId, cancellationToken);
         if (user is null || !user.IsActive)
         {
             throw new UnauthorizedException("Invalid refresh token.");
@@ -42,8 +50,12 @@ public class RefreshTokenCommandHandler : IRequestHandler<RefreshTokenCommand, A
         if (token.IsRevoked)
         {
             user.RotateSecurityStamp(now);
-            await RevokeAllActiveTokensAsync(user.Id, "Refresh token reuse detected", now, cancellationToken);
-            await _db.SaveChangesAsync(cancellationToken);
+            await _unitOfWork.ExecuteInTransactionAsync(async ct =>
+            {
+                await _users.UpdateAsync(user, ct);
+                await RevokeAllUnrevokedAsync(user.Id, "Refresh token reuse detected", now, ct);
+            }, cancellationToken);
+
             throw new UnauthorizedException("Refresh token has been revoked.");
         }
 
@@ -57,9 +69,13 @@ public class RefreshTokenCommandHandler : IRequestHandler<RefreshTokenCommand, A
         var newRefresh = _jwt.CreateRefreshToken();
 
         token.Revoke("Rotated", now, newRefresh.TokenHash);
-        _db.RefreshTokens.Add(new DomainRefreshToken(user.Id, newRefresh.TokenHash, newRefresh.ExpiresAt, now));
 
-        await _db.SaveChangesAsync(cancellationToken);
+        await _unitOfWork.ExecuteInTransactionAsync(async ct =>
+        {
+            await _refreshTokens.UpdateAsync(token, ct);
+            await _refreshTokens.AddAsync(
+                new DomainRefreshToken(user.Id, newRefresh.TokenHash, newRefresh.ExpiresAt, now), ct);
+        }, cancellationToken);
 
         return new AuthResponse(
             access.Token,
@@ -69,15 +85,13 @@ public class RefreshTokenCommandHandler : IRequestHandler<RefreshTokenCommand, A
             UserDto.FromEntity(user));
     }
 
-    private async Task RevokeAllActiveTokensAsync(int userId, string reason, DateTimeOffset now, CancellationToken cancellationToken)
+    private async Task RevokeAllUnrevokedAsync(int userId, string reason, DateTimeOffset now, CancellationToken cancellationToken)
     {
-        var active = await _db.RefreshTokens
-            .Where(t => t.UserId == userId && t.RevokedAt == null)
-            .ToListAsync(cancellationToken);
-
+        var active = await _refreshTokens.GetUnrevokedForUserAsync(userId, cancellationToken);
         foreach (var t in active)
         {
             t.Revoke(reason, now);
+            await _refreshTokens.UpdateAsync(t, cancellationToken);
         }
     }
 }

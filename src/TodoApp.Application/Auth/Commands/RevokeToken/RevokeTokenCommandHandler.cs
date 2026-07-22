@@ -1,5 +1,4 @@
 using MediatR;
-using Microsoft.EntityFrameworkCore;
 using TodoApp.Application.Common.Exceptions;
 using TodoApp.Application.Common.Interfaces;
 
@@ -7,18 +6,18 @@ namespace TodoApp.Application.Auth.Commands.RevokeToken;
 
 public class RevokeTokenCommandHandler : IRequestHandler<RevokeTokenCommand>
 {
-    private readonly IApplicationDbContext _db;
+    private readonly IRefreshTokenRepository _refreshTokens;
     private readonly IJwtTokenService _jwt;
     private readonly ICurrentUserService _currentUser;
     private readonly IDateTimeProvider _dateTime;
 
     public RevokeTokenCommandHandler(
-        IApplicationDbContext db,
+        IRefreshTokenRepository refreshTokens,
         IJwtTokenService jwt,
         ICurrentUserService currentUser,
         IDateTimeProvider dateTime)
     {
-        _db = db;
+        _refreshTokens = refreshTokens;
         _jwt = jwt;
         _currentUser = currentUser;
         _dateTime = dateTime;
@@ -34,7 +33,7 @@ public class RevokeTokenCommandHandler : IRequestHandler<RevokeTokenCommand>
         }
 
         var hash = _jwt.HashToken(request.RefreshToken);
-        var token = await _db.RefreshTokens.FirstOrDefaultAsync(t => t.TokenHash == hash, cancellationToken);
+        var token = await _refreshTokens.GetByHashAsync(hash, cancellationToken);
 
         // Only the owner may revoke; don't reveal whether the token exists otherwise.
         if (token is null || token.UserId != userId)
@@ -46,7 +45,7 @@ public class RevokeTokenCommandHandler : IRequestHandler<RevokeTokenCommand>
         if (token.IsActive(now))
         {
             token.Revoke("Logout", now);
-            await _db.SaveChangesAsync(cancellationToken);
+            await _refreshTokens.UpdateAsync(token, cancellationToken);
         }
     }
 }
