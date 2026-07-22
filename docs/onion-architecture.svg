@@ -14,12 +14,12 @@
   <!-- ===== Onion layers (outer -> inner) ===== -->
   <rect x="150" y="70" width="580" height="440" rx="22" fill="#eef2ff" stroke="#c7d2fe" stroke-width="2"/>
   <text x="440" y="100" text-anchor="middle" font-size="16" font-weight="700" fill="#3730a3">INFRASTRUCTURE  +  WEB API</text>
-  <text x="440" y="121" text-anchor="middle" font-size="12" fill="#5b6472">endpoints · JWT · CORS · EF Core · error handling</text>
+  <text x="440" y="121" text-anchor="middle" font-size="12" fill="#5b6472">endpoints · JWT · CORS · Dapper repositories · error handling</text>
 
   <rect x="235" y="150" width="410" height="280" rx="18" fill="#dbe4ff" stroke="#a5b4fc" stroke-width="2"/>
   <text x="440" y="178" text-anchor="middle" font-size="15" font-weight="700" fill="#3730a3">APPLICATION</text>
   <text x="440" y="198" text-anchor="middle" font-size="12" fill="#5b6472">MediatR handlers · CQRS · DTOs</text>
-  <text x="440" y="215" text-anchor="middle" font-size="12" fill="#5b6472">validation · interfaces</text>
+  <text x="440" y="215" text-anchor="middle" font-size="12" fill="#5b6472">validation · repository interfaces</text>
 
   <rect x="320" y="242" width="240" height="150" rx="14" fill="#4f46e5" stroke="#4338ca" stroke-width="2"/>
   <text x="440" y="300" text-anchor="middle" font-size="16" font-weight="800" fill="#ffffff">DOMAIN</text>
@@ -32,8 +32,8 @@
   <text x="83" y="309" text-anchor="middle" font-size="11" fill="#5b6472">React SPA</text>
 
   <rect x="738" y="262" width="118" height="66" rx="10" fill="#ffffff" stroke="#cbd5e1" stroke-width="1.5"/>
-  <text x="797" y="291" text-anchor="middle" font-size="12.5" font-weight="700" fill="#1f2430">Azure SQL</text>
-  <text x="797" y="309" text-anchor="middle" font-size="11" fill="#5b6472">database</text>
+  <text x="797" y="288" text-anchor="middle" font-size="12.5" font-weight="700" fill="#1f2430">Database</text>
+  <text x="797" y="306" text-anchor="middle" font-size="10.5" fill="#5b6472">SQLite · Azure SQL</text>
 
   <rect x="368" y="16" width="144" height="40" rx="10" fill="#ffffff" stroke="#cbd5e1" stroke-width="1.5"/>
   <text x="440" y="41" text-anchor="middle" font-size="12.5" font-weight="700" fill="#1f2430">Google Identity</text>
@@ -44,7 +44,7 @@
   <text x="146" y="345" text-anchor="middle" font-size="10.5" fill="#2563eb">JSON · JWT</text>
 
   <line x1="730" y1="295" x2="736" y2="295" stroke="#2563eb" stroke-width="2.5" marker-end="url(#flow)"/>
-  <text x="710" y="255" text-anchor="middle" font-size="10.5" fill="#2563eb">SQL · identity</text>
+  <text x="705" y="255" text-anchor="middle" font-size="10.5" fill="#2563eb">ADO.NET · Dapper</text>
 
   <line x1="440" y1="56" x2="440" y2="68" stroke="#2563eb" stroke-width="2.5" marker-end="url(#flow)"/>
   <text x="527" y="47" text-anchor="middle" font-size="10.5" fill="#2563eb">verify ID token</text>

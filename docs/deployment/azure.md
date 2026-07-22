@@ -9,12 +9,33 @@ Follow it top to bottom. Each phase depends on the ones before it, and the order
 avoids the chicken-and-egg traps (the managed identity must exist before the SQL grant; the SPA URL must
 exist before Google/CORS; the new build must be deployed before you'd ever remove a plaintext key).
 
-For deeper explanation of individual pieces, see the focused guides: [Google sign-in](google-signin.md) ·
-[Key Vault](key-vault.md) · [Database portability](../architecture/database-portability.md). To **script** this stack (provision / export / re-import) instead of the manual steps here, see the [infrastructure toolkit](../../infra/README.md). For local
-setup and non-Azure targets (Docker, Linux + nginx), see [Local development](../development/local-dev.md)
-and the [Deployment overview](overview.md).
+For the Dapper data layer and how the schema is created on Azure SQL, see
+[Infrastructure](../infrastructure.md); for the CI/CD workflows and branch-choice deploys, see
+[Workflows](../workflows.md).
 
 > **← Back to the main [README](../../README.md).**
+
+---
+
+## Deploying the `refactor/dapper` branch
+
+This branch (Dapper) and `main` (EF Core) deploy to the **same** App Service, so whichever you deploy
+last is live. The runbook below provisions the Azure environment once; after that, either branch ships
+on demand — **nothing about the App Service configuration below changes**, because only the persistence
+layer differs.
+
+- **`main` (EF Core)** auto-deploys on every push (default pipeline behavior).
+- **`refactor/dapper` (Dapper)** deploys via **Actions → "Build and Deploy taskboard-06-api" → Run
+  workflow → select `refactor/dapper` → Run**. See
+  [Workflows → branch-choice deploy](../workflows.md#the-ef--dapper-branch-choice-deploy).
+
+Both branches use the **same Azure SQL database** (the App Service's `ConnectionStrings__DefaultConnection`).
+That's safe because the Dapper schema matches EF's and the schema initializer's DDL is idempotent — it
+reuses the existing tables. To switch branches, just deploy the other one; no settings change needed.
+
+> ⚠️ This is a **production** deploy to the live App Service and real data — not a staging slot. To try
+> Dapper in isolation, point a separate App Service (or the SQLite fallback under Phase 4) at its own
+> database.
 
 ---
 
@@ -141,7 +162,7 @@ az sql server firewall-rule create -g $RG -s $SQL_SERVER \
 CREATE USER [<API_APP>] FROM EXTERNAL PROVIDER;
 ALTER ROLE db_datareader ADD MEMBER [<API_APP>];
 ALTER ROLE db_datawriter ADD MEMBER [<API_APP>];
-ALTER ROLE db_ddladmin  ADD MEMBER [<API_APP>];   -- lets EnsureCreated build the schema
+ALTER ROLE db_ddladmin  ADD MEMBER [<API_APP>];   -- lets the schema initializer create tables
 ```
 
 Build the passwordless connection string (no user id or password in it):
@@ -187,14 +208,10 @@ az role assignment create --assignee $PRINCIPAL_ID \
 az keyvault secret set --vault-name $KV -n "Jwt--Key" --value "$(openssl rand -base64 48)"
 ```
 
-> **Portal instead of CLI?** The click-by-click version is in
-> [Key Vault → Portal setup walkthrough](key-vault.md#portal-setup-walkthrough-step-by-step).
->
 > **Alternative — app-setting reference (no config provider).** Instead of `KeyVault__Uri`, App Service
 > can resolve a `@Microsoft.KeyVault(...)` token at runtime while the app reads `Jwt:Key` unchanged:
 > store the secret as `JwtKey`, grant the identity `get` on secrets, and set
-> `Jwt__Key="@Microsoft.KeyVault(SecretUri=https://$KV.vault.azure.net/secrets/JwtKey/)"`. The
-> config-provider approach this repo uses is documented fully in [Key Vault](key-vault.md).
+> `Jwt__Key="@Microsoft.KeyVault(SecretUri=https://$KV.vault.azure.net/secrets/JwtKey/)"`.
 
 ---
 
@@ -226,7 +243,8 @@ az webapp deploy -g $RG -n $API_APP --src-path api.zip --type zip
 az webapp config set -g $RG -n $API_APP --startup-file "dotnet TodoApp.WebApi.dll"
 ```
 
-On first startup `EnsureCreated` builds the schema and seeds the demo user. **Verify:**
+On first startup the **schema initializer** runs the idempotent DDL to build the schema and seeds the
+demo user (see [Infrastructure → Schema management](../infrastructure.md#schema-management)). **Verify:**
 
 ```bash
 API_HOST=$(az webapp show -g $RG -n $API_APP --query defaultHostName -o tsv)
@@ -261,8 +279,7 @@ echo "SPA will be at: $SWA_URL"
 
 ## Phase 9 — Google sign-in
 
-Full detail — consent screen, credentials, troubleshooting — is in [Google sign-in](google-signin.md).
-Quick version:
+Google is only an identity source — the API still issues and revokes its own JWTs. Quick version:
 
 1. [Google Cloud console](https://console.cloud.google.com/) → select/create a project.
 2. **OAuth consent screen** → *External*; app name + support email; scopes `openid`, `email`, `profile`;
@@ -304,7 +321,7 @@ cd ..
 > **Alternative — GitHub CI/CD:** `az staticwebapp create` with `--source <repo-url> --branch main
 > --app-location "frontend" --output-location "dist" --login-with-github` scaffolds a GitHub Action that
 > builds and deploys on every push. Add `VITE_API_URL` / `VITE_GOOGLE_CLIENT_ID` as repository/Action
-> variables. See the [CI/CD pipeline guide](pipeline.md).
+> variables. See [Workflows](../workflows.md).
 
 ---
 
@@ -364,12 +381,11 @@ Rules of thumb: nested config keys map to env vars with `__` (double underscore)
 - **SCM Basic Auth** must be enabled (Phase 2) or `az webapp deploy` is rejected.
 - **Serverless cold start** — first request after idle can take ~30–60s; `Connect Timeout=60` + the app's
   transient retry handle it. A persistent 500 is a real error — check `az webapp log tail`.
-- **Multiple cascade paths** — SQL Server rejects a cascade cycle SQLite allows; already fixed in code
-  with `ClientCascade`. See [Database portability](../architecture/database-portability.md).
+- **Multiple cascade paths** — SQL Server rejects a cascade cycle SQLite allows; handled in the Dapper
+  DDL by making `Category.UserId` `NO ACTION`. See [Infrastructure → Schema management](../infrastructure.md#schema-management).
 - **Local dev is unaffected** — with no `KeyVault__Uri`, the app uses user-secrets and never calls Azure.
-  See [Key Vault → Working locally](key-vault.md#working-locally-without-key-vault).
-- Hit a wall bringing this up the first time? The blow-by-blow post-mortem is in the
-  [troubleshooting log](troubleshooting-log.md).
+- Hit a wall the first time? Issues found (and fixed) during the Dapper refactor are logged in
+  [Bugs encountered](../refactor-bugs.md).
 
 ---
 

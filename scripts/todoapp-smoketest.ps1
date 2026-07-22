@@ -1,16 +1,23 @@
 <#
   TaskBoard API smoke test — exercises the api backend end to end against a locally
-  running instance. Covers every Swagger endpoint except Google sign-in (which needs a real
-  Google ID token and is noted as manual at the end).
+  running instance. Covers EVERY Swagger endpoint, including Google sign-in via the
+  Development-only fake Google validator (no real Google token required).
 
-  1. Start the API first:
+  1. Start the API with the fake Google validator enabled (Development only):
+        $env:ASPNETCORE_ENVIRONMENT   = "Development"
+        $env:Authentication__Google__UseFake = "true"
         dotnet run --project src\TodoApp.WebApi
+     Without Authentication:Google:UseFake=true the Google tests will fail (the real
+     validator either rejects the fake token or errors when no client id is configured).
   2. Then run this script (PowerShell 7 recommended, but Windows PowerShell 5.1 works too):
         pwsh .\todoapp-smoketest.ps1
      or:
         powershell -ExecutionPolicy Bypass -File .\todoapp-smoketest.ps1
 
   Override the base URL if needed:  .\todoapp-smoketest.ps1 -BaseUrl http://localhost:5080
+
+  The fake validator accepts a token of the form  fake:{email}  as a verified Google
+  identity and rejects anything else (401) — mirroring the real validator's behavior.
 #>
 
 param(
@@ -180,8 +187,19 @@ $revokeAll = Invoke-Api -Method POST -Path "/api/auth/revoke-all" -Token $d.acce
 Check "POST /auth/revoke-all" 204 $revokeAll
 Check "the same access token is rejected after revoke-all" 401 (Invoke-Api -Method GET -Path "/api/todos" -Token $d.accessToken)
 
+# ---- Google sign-in (via the Development-only fake validator) ----
 Write-Host ""
-Write-Host "  [SKIP] POST /auth/google - needs a real Google ID token; test manually from the SPA." -ForegroundColor DarkYellow
+Write-Host "Google sign-in (fake identity)" -ForegroundColor Yellow
+$gEmail = "google-$([guid]::NewGuid().ToString('N').Substring(0,8))@example.com"
+$gGood = Invoke-Api -Method POST -Path "/api/auth/google" -Body @{ idToken = "fake:$gEmail" }
+Check "POST /auth/google with a fake VALID identity -> 200" 200 $gGood
+Assert "Google sign-in issues a token for the new user" ([bool]$gGood.Data.accessToken)
+Assert "Google sign-in creates the expected account" ($gGood.Data.user.email -eq $gEmail)
+if ($gGood.Status -ne 200) {
+    Write-Host "         (is the API running with Authentication:Google:UseFake=true in Development?)" -ForegroundColor DarkGray
+}
+$gBad = Invoke-Api -Method POST -Path "/api/auth/google" -Body @{ idToken = "not-a-real-token" }
+Check "POST /auth/google with an INVALID token -> 401" 401 $gBad
 
 # ---- Summary ----
 Write-Host ""

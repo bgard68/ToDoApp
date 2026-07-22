@@ -1,7 +1,9 @@
 using Azure.Identity;
 using Microsoft.OpenApi.Models;
 using TodoApp.Application;
+using TodoApp.Application.Common.Interfaces;
 using TodoApp.Infrastructure;
+using TodoApp.Infrastructure.Authentication;
 using TodoApp.Infrastructure.Persistence;
 using TodoApp.WebApi;
 using TodoApp.WebApi.Authentication;
@@ -51,6 +53,16 @@ builder.Services.AddCors(options =>
 // Application + Infrastructure layers (Clean Architecture composition root).
 builder.Services.AddApplication();
 builder.Services.AddInfrastructure(builder.Configuration);
+
+// Development-only: swap in a fake Google validator so the Google sign-in flow can be exercised
+// end to end (including the create-user success path) without a real Google ID token — used by the
+// smoke test and local demos. Guarded by BOTH the Development environment and an explicit config
+// flag, so it can never be enabled in production.
+if (builder.Environment.IsDevelopment() &&
+    builder.Configuration.GetValue<bool>("Authentication:Google:UseFake"))
+{
+    builder.Services.AddSingleton<IGoogleTokenValidator, FakeGoogleTokenValidator>();
+}
 
 // JWT authentication + authorization (with security-stamp revocation check).
 builder.Services.AddJwtAuthentication(builder.Configuration);
