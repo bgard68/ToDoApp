@@ -56,7 +56,9 @@ src/
   TodoApp.Application/     # CQRS commands/queries, DTOs, validation, interfaces
   TodoApp.Infrastructure/  # EF Core, password hashing, JWT + current-user services
   TodoApp.WebApi/          # Minimal API endpoints, JWT wiring, error handling
-frontend/                  # React + Vite client (login, tokens, todos)
+
+# The React + Vite client now lives on its own standalone `frontend` branch,
+# not in this branch. See "Frontend" below.
 ```
 
 Dependencies point inward: WebApi → Infrastructure → Application → Domain. The
@@ -79,9 +81,16 @@ dotnet restore
 dotnet user-secrets set "Jwt:Key" "$(openssl rand -base64 48)" --project src/TodoApp.WebApi
 dotnet run --project src/TodoApp.WebApi
 
-# Frontend (http://localhost:5173) — in a second terminal
-cd frontend && npm install && npm run dev
+# Frontend (http://localhost:5173) — lives on the standalone `frontend` branch.
+# Check it out once into a sibling folder, then run it in a second terminal:
+git worktree add ../todoapp-frontend frontend
+cd ../todoapp-frontend && npm install && npm run dev
 ```
+
+> **Frontend location.** The React + Vite client is maintained on its own `frontend`
+> branch (app at the branch root) and deploys to Azure Static Web Apps from there. It is
+> intentionally not part of the `main`/`dapper` backend branches. Use `git checkout frontend`
+> or the `git worktree` command above to work on it.
 
 First backend run creates a SQLite database (`todoapp.db`) and seeds a demo user
 (`demo@todoapp.local` / `Password123!`). The JWT signing key **must** be supplied
@@ -91,8 +100,8 @@ playbook), see the **[local development guide](docs/development/local-dev.md)**.
 
 ## Testing
 
-`dotnet test` runs the xUnit unit + integration suites with no setup; `npm test` (in
-`frontend/`) runs Vitest + React Testing Library. For an end-to-end health check that hits
+`dotnet test` runs the xUnit unit + integration suites with no setup; `npm test` (on the
+`frontend` branch) runs Vitest + React Testing Library. For an end-to-end health check that hits
 **every** API endpoint over HTTP against a running instance, run the
 **[API smoke test](scripts/README.md)** — note a green run is a mix of expected status codes
 (`200`, plus deliberate `401`/`400`/`409`/`204` assertions), not all `200`. Full details are
@@ -100,7 +109,7 @@ in the **[testing guide](docs/development/testing.md)**.
 
 > **Deploying?** See the **[deployment overview](docs/deployment/overview.md)** for build/compile
 > and deploy anywhere (Docker Compose, Linux + nginx, Azure), plus the included `Dockerfile.api`,
-> `frontend/Dockerfile`, `docker-compose.yml`, and `deploy/` samples. For a start-to-finish
+> the frontend's `Dockerfile` (on the `frontend` branch), `docker-compose.yml`, and `deploy/` samples. For a start-to-finish
 > **Azure** deploy (App Service + Static Web Apps, passwordless SQL, Google sign-in, CORS, Key
 > Vault), see the **[Azure guide](docs/deployment/azure.md)**. Hit a wall getting the API or Key
 > Vault live? The **[troubleshooting log](docs/deployment/troubleshooting-log.md)** is a
