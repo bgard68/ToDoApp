@@ -61,7 +61,9 @@ src/
   TodoApp.Application/     # CQRS commands/queries, DTOs, validation, repository interfaces
   TodoApp.Infrastructure/  # Dapper repositories, connection factory, unit of work, schema initializer, JWT/auth
   TodoApp.WebApi/          # Minimal API endpoints, JWT wiring, error handling
-frontend/                  # React + Vite client (login, tokens, todos)
+
+# The React + Vite client now lives on its own standalone `frontend` branch,
+# not in this branch. See "Frontend" below.
 ```
 
 Dependencies point inward: WebApi → Infrastructure → Application → Domain. The Application layer defines
@@ -84,9 +86,16 @@ dotnet restore
 dotnet user-secrets set "Jwt:Key" "$(openssl rand -base64 48)" --project src/TodoApp.WebApi
 dotnet run --project src/TodoApp.WebApi
 
-# Frontend (http://localhost:5173) — in a second terminal
-cd frontend && npm install && npm run dev
+# Frontend (http://localhost:5173) — lives on the standalone `frontend` branch.
+# Check it out once into a sibling folder, then run it in a second terminal:
+git worktree add ../todoapp-frontend frontend
+cd ../todoapp-frontend && npm install && npm run dev
 ```
+
+> **Frontend location.** The React + Vite client is maintained on its own `frontend`
+> branch (app at the branch root) and deploys to Azure Static Web Apps from there — shared
+> by both the EF Core (`main`) and Dapper (`dapper`) backends. It is intentionally not part
+> of this branch. Use `git checkout frontend` or the `git worktree` command above.
 
 First backend run creates a SQLite database (`todoapp.db`) via the schema initializer and seeds a demo
 user (`demo@todoapp.local` / `Password123!`). The JWT signing key **must** be supplied externally — the
