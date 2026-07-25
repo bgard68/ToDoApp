@@ -111,7 +111,28 @@ CI gate protects the branches whether or not anyone installs it.
 
 ---
 
-## 3. Audit result (verified)
+## 3. CI & supply-chain hardening
+
+Beyond secret scanning, the workflows are hardened against token leakage and runaway jobs:
+
+- **`persist-credentials: false`** on every `actions/checkout` (`api-ci-cd.yml`, `secret-scan.yml`),
+  so the automatic job token isn't written into the runner's `.git/config` where a later step could
+  read it. The checkout-less workflows (`cleanup-runs.yml`, `keep-warm.yml`) have no token to clear.
+- **`timeout-minutes` on every job** (API 20, secret-scan 10, cleanup 15, keep-warm 5), so a hung
+  step can't burn Actions minutes indefinitely.
+- **`.github/dependabot.yml`** opens weekly update PRs for **GitHub Actions** and **NuGet**, so action
+  pins and package versions don't silently go stale and miss security fixes. (Dependabot alerts must
+  also be enabled in the repo Settings for these to surface.)
+
+### Dependency vulnerability auditing
+
+NuGet runs a vulnerability audit on `dotnet restore` and emits `NU1901`-`NU1904` for any referenced
+package with a published advisory. On the .NET 9+ SDK that audit covers **transitive** packages by
+default, so this repo already gets full-graph coverage on `net10.0`. Because the build does **not**
+set `TreatWarningsAsErrors`, an advisory surfaces as a visible warning without breaking CI - the fix
+then arrives as a Dependabot PR rather than an emergency build outage.
+
+## 4. Audit result (verified)
 
 A full scan was run across `main`, `dapper`, and `frontend`:
 

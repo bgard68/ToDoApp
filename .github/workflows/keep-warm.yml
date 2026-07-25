@@ -27,6 +27,7 @@ permissions: {}              # no repo access needed — it just makes an HTTP c
 jobs:
   ping:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - name: Ping the API root (warms the app, no DB hit)
         env:

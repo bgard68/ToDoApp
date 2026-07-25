@@ -40,6 +40,8 @@ deploy path:
 Both deploy pipelines also use **`paths:` filters** so a docs-only commit doesn't trigger a full API
 or frontend redeploy — only changes under the relevant source paths (or the workflow file itself) run them.
 
+All workflows also set `persist-credentials: false` on checkout and `timeout-minutes` on each job, and [`.github/dependabot.yml`](../../.github/dependabot.yml) keeps GitHub Actions and NuGet dependencies current - see [Secret hygiene](secret-hygiene.md#3-ci--supply-chain-hardening).
+
 ---
 
 ## 2. How GitHub Actions error handling works
