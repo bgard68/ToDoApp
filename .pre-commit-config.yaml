@@ -1,0 +1,14 @@
+# Pre-commit hooks for ToDoApp.
+#
+# One-time setup on your machine:
+#     pip install pre-commit      # or: pipx install pre-commit
+#     pre-commit autoupdate       # pin the current gitleaks release
+#     pre-commit install          # activate the git hook
+#
+# After that, gitleaks scans your staged changes on every commit and blocks
+# the commit if a secret is detected. It reads .gitleaks.toml automatically.
+repos:
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.21.2
+    hooks:
+      - id: gitleaks
