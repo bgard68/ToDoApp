@@ -1,0 +1,22 @@
+# Gitleaks configuration for ToDoApp.
+# Extends the built-in default ruleset (do not disable it).
+title = "ToDoApp gitleaks config"
+
+[extend]
+useDefault = true
+
+# The allowlist below only excuses TEMPLATE / VARIABLE constructs that look
+# secret-ish but hold no real value. A real key pasted in would NOT match these
+# and would still be flagged.
+[allowlist]
+description = "Known-safe placeholders, templates, and generated values (no real secrets)."
+paths = [
+  '''\.env\.example$''',        # blank template with empty keys
+]
+regexes = [
+  '''Password=\$[A-Za-z_]''',                       # Password=$SqlAdminPassword (PowerShell variable)
+  '''Password=\$\{[A-Za-z_]''',                      # Password=${SQL_ADMIN_PASSWORD} (shell variable)
+  '''AccountKey=\$\(''',                             # AccountKey=$((Get-AzStorageAccountKey ...)) (runtime fetch)
+  '''\$\(openssl rand''',                            # $(openssl rand -base64 18) (generated at runtime)
+  '''Authentication=Active Directory Default''',     # passwordless Entra connection strings
+]
