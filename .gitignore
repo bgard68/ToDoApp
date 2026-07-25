@@ -3,7 +3,7 @@ bin/
 obj/
 publish/
 *.user
-# Visual Studio publish profiles — can contain the App Service name and deploy credentials.
+# Visual Studio publish profiles - can contain the App Service name and deploy credentials.
 *.pubxml
 *.pubxml.user
 *.zip
@@ -30,10 +30,10 @@ dist-ssr/
 .vite/
 *.local
 
-# Env files — keep .env.example, ignore real/local env files
+# Env files - ignore ALL real/local env files; keep only the blank .env.example template
 .env
-.env.local
-.env.*.local
+.env.*
+!.env.example
 
 # Logs
 *.log
@@ -51,3 +51,25 @@ azure-export/
 # Claude Code local session/workspace (not project files)
 .claude/
 
+# ---------- Secrets & cloud config - never commit real values ----------
+# Azure Connected Services / Visual Studio - can carry endpoints, keys, deploy creds
+serviceDependencies.json
+serviceDependencies.local.json
+ServiceConfiguration.*.cscfg
+ApplicationInsights.config
+local.settings.json
+*.publishsettings
+azureauth.json
+.azure/
+# Environment-specific app config that tends to hold secrets
+# (base appsettings.json and appsettings.Development.json stay tracked on purpose)
+appsettings.Production.json
+appsettings.Local.json
+appsettings.*.Local.json
+# .NET user secrets, if ever materialized into the repo
+secrets.json
+# Certificates / private keys
+*.pfx
+*.p12
+*.pem
+*.key
