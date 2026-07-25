@@ -81,7 +81,7 @@ jobs:
  
       # Keep the build output as a downloadable artifact (handy for PR builds and manual deploys).
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: api-publish
           path: ./publish
