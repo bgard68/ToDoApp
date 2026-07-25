@@ -27,6 +27,19 @@ which **runs the Vitest suite as a gate**, then builds the Vite SPA and deploys 
 Apps — if a frontend test fails, the deploy is skipped (see §5 and the
 [Testing guide](../development/testing.md) for how the gate and the test suites work).
 
+Two more workflows round out the automation, both **scheduled/independent** rather than part of the
+deploy path:
+
+- [`secret-scan.yml`](../../.github/workflows/secret-scan.yml) — a gitleaks secret scan that runs on
+  **every push and pull request on all branches**. It's a standalone gate (GitHub triggers it from
+  its own `on:` block); see [Secret hygiene](secret-hygiene.md).
+- [`cleanup-runs.yml`](../../.github/workflows/cleanup-runs.yml) — a daily job that prunes old Actions
+  runs, keeping the most recent of each workflow. [`keep-warm.yml`](../../.github/workflows/keep-warm.yml)
+  pings the API on a schedule so the free-tier instance doesn't cold-start (see [Cold starts](cold-starts.md)).
+
+Both deploy pipelines also use **`paths:` filters** so a docs-only commit doesn't trigger a full API
+or frontend redeploy — only changes under the relevant source paths (or the workflow file itself) run them.
+
 ---
 
 ## 2. How GitHub Actions error handling works
