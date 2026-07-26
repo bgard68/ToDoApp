@@ -1,0 +1,18 @@
+# Dependabot version updates - keeps GitHub Actions and NuGet dependencies current.
+# Alerts must also be enabled in the repo Settings for these to surface.
+# https://docs.github.com/code-security/dependabot/dependabot-version-updates
+version: 2
+updates:
+  # GitHub Actions used in .github/workflows (actions/checkout, azure/login, gitleaks, etc.)
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+
+  # NuGet packages across the solution (TodoApp.sln at the repo root)
+  - package-ecosystem: "nuget"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5

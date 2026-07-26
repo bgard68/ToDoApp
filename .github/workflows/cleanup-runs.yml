@@ -29,6 +29,7 @@ concurrency:
 jobs:
   cleanup:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     env:
       GH_TOKEN: ${{ github.token }}
       KEEP: ${{ github.event.inputs.keep || '1' }}
