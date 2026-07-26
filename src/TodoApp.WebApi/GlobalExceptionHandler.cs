@@ -96,7 +96,12 @@ public class GlobalExceptionHandler : IExceptionHandler
                 break;
 
             default:
-                _logger.LogError(exception, "Unhandled exception processing {Path}", httpContext.Request.Path);
+                // Sanitize the user-controlled request path before logging to prevent log
+                // forging (CWE-117 / cs/log-forging): strip carriage returns and line feeds.
+                var requestPath = httpContext.Request.Path.ToString()
+                    .Replace("\r", string.Empty)
+                    .Replace("\n", string.Empty);
+                _logger.LogError(exception, "Unhandled exception processing {Path}", requestPath);
                 problemDetails = new ProblemDetails
                 {
                     Status = StatusCodes.Status500InternalServerError,
