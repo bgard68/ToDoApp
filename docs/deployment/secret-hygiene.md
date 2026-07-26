@@ -124,6 +124,9 @@ Beyond secret scanning, the workflows are hardened against token leakage and run
   pins and package versions don't silently go stale and miss security fixes. (Dependabot alerts must
   also be enabled in the repo Settings for these to surface.)
 
+These workflow-hardening changes, together with the `.gitignore` hardening and the gitleaks
+configuration, are applied on **all three branches** (`main`, `dapper`, `frontend`).
+
 ### Dependency vulnerability auditing
 
 NuGet runs a vulnerability audit on `dotnet restore` and emits `NU1901`-`NU1904` for any referenced
@@ -132,7 +135,66 @@ default, so this repo already gets full-graph coverage on `net10.0`. Because the
 set `TreatWarningsAsErrors`, an advisory surfaces as a visible warning without breaking CI - the fix
 then arrives as a Dependabot PR rather than an emergency build outage.
 
-## 4. Audit result (verified)
+### Dependabot and the dependency graph - how GitHub runs it
+
+Dependabot is **not** a GitHub Actions workflow you author or run - it's a GitHub-hosted service.
+The only file it needs is `.github/dependabot.yml`, which is a **config file, not a workflow**. That
+is the key difference from `secret-scan.yml` / `api-ci-cd.yml`, which *are* Actions workflows that
+execute steps on a runner.
+
+The moving parts, in the order they build on each other:
+
+- **Dependency graph** - GitHub parses the repo's manifests and lockfiles (`*.csproj`,
+  `packages.lock.json`, and the `uses:` lines in `.github/workflows/*`) to build the list of what
+  the project depends on. It's the foundation the rest reads from. Free on public repos; turn it on
+  under Settings -> Advanced Security.
+- **Dependabot alerts** - GitHub compares that graph against the GitHub Advisory Database and raises
+  an alert when a dependency has a published vulnerability. Requires the dependency graph. Alerts
+  appear under the repo's **Security** tab.
+- **Dependabot security updates** - optional automatic PRs that bump a *vulnerable* dependency to a
+  fixed version when an alert fires.
+- **Dependabot version updates** - the scheduled PRs driven by `.github/dependabot.yml` that keep
+  dependencies *current* regardless of vulnerabilities. This is what the committed config enables.
+
+How the config actually runs: GitHub reads `.github/dependabot.yml` and, on the schedule it declares,
+its own hosted infrastructure checks each configured ecosystem and opens PRs - no runner minutes of
+yours are spent, and there is no workflow to invoke. This repo's config declares two ecosystems on a
+weekly cadence:
+
+```yaml
+version: 2
+updates:
+  - package-ecosystem: "github-actions"   # actions pinned in .github/workflows/*
+    directory: "/"
+    schedule:
+      interval: "weekly"
+  - package-ecosystem: "nuget"            # NuGet packages across TodoApp.sln
+    directory: "/"
+    schedule:
+      interval: "weekly"
+```
+
+Version updates (the PRs) run from this config alone. Alerts and security updates additionally
+require the **dependency graph** and **Dependabot alerts** to be enabled in Settings -> Advanced
+Security - the config file does not turn those on by itself.
+
+## 4. GitHub-side protections (server-enforced)
+
+Enforced by GitHub itself, independent of anything in the repo — the strongest layer, because it
+acts before or regardless of a local commit:
+
+- **Secret scanning** (labelled *Secret Protection* under Settings -> Advanced Security) runs
+  automatically on public repositories and is enabled. Findings appear under the repo's **Security**
+  tab.
+- **Push protection** is enabled - it blocks a push that contains a recognized secret from reaching
+  GitHub at all, which is stronger than any after-the-fact scan.
+- **Branch protection** - an active ruleset named **`protect-main`** targets `main` and **blocks
+  force pushes** and **branch deletion**, with no bypass list. Direct pushes to `main` still work;
+  its history simply can't be rewritten and the branch can't be deleted.
+- **Dependabot alerts / Dependency graph** - enable these under Settings -> Advanced Security so the
+  committed `.github/dependabot.yml` starts surfacing advisories and opening update PRs.
+
+## 5. Audit result (verified)
 
 A full scan was run across `main`, `dapper`, and `frontend`:
 
