@@ -23,6 +23,8 @@ The ones that cost the most time — jump to the section for the full story:
 - **`<name>.azurewebsites.net` won't resolve** → [Networking / hostnames](#networking--hostnames): use the Overview page's regional Default domain.
 - **Drag-and-drop is dead on mobile** → [frontend notes](development/frontend-notes.md): the native HTML5 DnD API is touch-blind.
 - **Light mode is ignored in a phone browser** → [frontend notes](development/frontend-notes.md#darklight-mode--mobile-browsers-force-darken-a-light-only-page): mobile auto-dark force-darkens a light page; opt out with `color-scheme: only light` (the `only` keyword — `light dark` does not opt out).
+- **CodeQL flags a log line as "log forging"** → [Security scanning](#security-scanning-codeql-gitleaks--dependabot): user input (e.g. `Request.Path`) logged even via structured logging; strip `\r`/`\n` before logging.
+
 ## Database (SQLite vs Azure SQL)
 
 - Behavior differs between SQLite and Azure SQL Server — code that runs locally can fail in the cloud.
@@ -99,6 +101,20 @@ Making the repo public does **not** expose your Actions secrets — provided you
 - **Real risks to guard:** anyone with **write/admin** access can obtain secrets (they can push a workflow that uses them) → only add trusted collaborators. Avoid the **`pull_request_target`** trigger (it *does* expose secrets to fork PRs — a common footgun); this repo uses plain `push` / `pull_request`. And never `echo` a secret or write it to an artifact.
 - The three `AZUREAPPSERVICE_*` values aren't even sensitive — they're just identifiers (client/tenant/subscription IDs); security comes from the **OIDC federated-trust**, not from them staying hidden. The one true secret is the **Static Web Apps deploy token**, which GitHub keeps encrypted.
 - Reference: GitHub's *"Security hardening for GitHub Actions"* documentation.
+
+## Security scanning (CodeQL, gitleaks & Dependabot)
+
+- **Log forging (CWE-117 / `cs/log-forging`).** CodeQL flags logging a user-controlled value — here
+  `httpContext.Request.Path` in `GlobalExceptionHandler.cs` — *even with structured logging* (`{Path}` as a
+  parameter). Structured logging avoids string concatenation, but the default console/file formatters still
+  render the parameter into the text line without stripping control chars, so a percent-encoded `%0A` in the
+  path could inject a fake log line. Fix: strip `\r`/`\n` before logging
+  (`.Replace("\r", string.Empty).Replace("\n", string.Empty)`) — the recognized sanitizer clears the alert.
+- **CodeQL default setup** (Settings → Advanced Security → Code scanning) is one click, free on public repos,
+  supports C#, and re-scans on every push — no workflow file to maintain. It found the log-forging issue above.
+- The rest of the security posture — `.gitignore` hardening, gitleaks (pre-commit + CI), Dependabot, and the
+  GitHub-side protections (secret scanning, push protection, the `protect-main` ruleset) — lives in
+  **[Secret hygiene](deployment/secret-hygiene.md)**.
 
 ## Config / secrets
 
