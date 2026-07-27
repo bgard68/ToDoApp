@@ -2,6 +2,8 @@
 bin/
 obj/
 publish/
+artifacts/
+*.binlog
 *.user
 # Visual Studio publish profiles - can contain the App Service name and deploy credentials.
 *.pubxml
@@ -13,10 +15,23 @@ PublishProfiles/
 *.userosscache
 *.sln.docstates
 
-# IDEs
+# ---------- Test & coverage output ----------
+TestResults/
+[Tt]est[Rr]esult*/
+*.trx
+coverage*.json
+coverage*.xml
+coverage*.info
+*.coverage
+
+# ---------- IDEs ----------
 .vs/
-.vscode/
 .idea/
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
 
 # ---------- Database (SQLite) ----------
 *.db
@@ -48,8 +63,10 @@ pnpm-debug.log*
 Thumbs.db
 azure-export/
 
-# Claude Code local session/workspace (not project files)
-.claude/
+# Claude Code: commit shared settings, ignore personal/local session state
+.claude/*
+!.claude/settings.json
+.claude/settings.local.json
 
 # ---------- Secrets & cloud config - never commit real values ----------
 # Azure Connected Services / Visual Studio - can carry endpoints, keys, deploy creds
@@ -63,9 +80,8 @@ azureauth.json
 .azure/
 # Environment-specific app config that tends to hold secrets
 # (base appsettings.json and appsettings.Development.json stay tracked on purpose)
-appsettings.Production.json
-appsettings.Local.json
-appsettings.*.Local.json
+appsettings.*.json
+!appsettings.Development.json
 # .NET user secrets, if ever materialized into the repo
 secrets.json
 # Certificates / private keys
