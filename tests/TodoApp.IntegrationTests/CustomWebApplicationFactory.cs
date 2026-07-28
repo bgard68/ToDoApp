@@ -28,8 +28,27 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>
         Environment.SetEnvironmentVariable("Jwt__Key", TestSigningKey);
     }
 
+    /// <summary>
+    /// Configuration applied on top of appsettings for the test host. Rate limits are raised well
+    /// clear of what the suite generates (the whole run shares one client-IP partition), and demo
+    /// seeding is forced off so tests exercise the production default. Override to vary either.
+    /// </summary>
+    protected virtual IEnumerable<KeyValuePair<string, string?>> TestConfiguration =>
+    [
+        new("RateLimiting:Auth:PermitLimit", "10000"),
+        new("RateLimiting:Global:PermitLimit", "10000"),
+        new("Seed:DemoUser", "false"),
+    ];
+
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
+        // UseSetting (rather than an extra configuration source) so these reliably win over
+        // appsettings.Development.json in the minimal-hosting test host.
+        foreach (var (key, value) in TestConfiguration)
+        {
+            builder.UseSetting(key, value);
+        }
+
         // Point the real connection factory at this instance's private SQLite file.
         builder.ConfigureAppConfiguration((_, config) =>
         {

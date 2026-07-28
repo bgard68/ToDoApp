@@ -1,4 +1,5 @@
 using MediatR;
+using Microsoft.AspNetCore.RateLimiting;
 using TodoApp.Application.Auth.Commands.GoogleSignIn;
 using TodoApp.Application.Auth.Commands.Login;
 using TodoApp.Application.Auth.Commands.RefreshToken;
@@ -14,7 +15,11 @@ public static class AuthEndpoints
 {
     public static IEndpointRouteBuilder MapAuthEndpoints(this IEndpointRouteBuilder app)
     {
-        var group = app.MapGroup("/api/auth").WithTags("Auth");
+        // Anonymous + password-hashing + token-minting = the endpoints worth brute forcing.
+        // Throttled per client IP (review finding H3).
+        var group = app.MapGroup("/api/auth")
+            .WithTags("Auth")
+            .RequireRateLimiting(RateLimitPolicies.Auth);
 
         group.MapPost("/register", async (RegisterCommand command, ISender sender) =>
         {

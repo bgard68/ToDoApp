@@ -16,3 +16,35 @@ updates:
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 5
+
+  # GitHub Actions on the dapper branch. Dependabot only reads this file from the DEFAULT branch,
+  # so every branch that needs updates must be declared here explicitly (review finding M6).
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    target-branch: "dapper"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+
+  - package-ecosystem: "nuget"
+    directory: "/"
+    target-branch: "dapper"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+
+  # The React SPA lives on the 'frontend' branch. Without these entries its dependency tree —
+  # React, Vite, Vitest and everything transitive — was monitored by nothing at all (M6).
+  - package-ecosystem: "npm"
+    directory: "/"
+    target-branch: "frontend"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    target-branch: "frontend"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5

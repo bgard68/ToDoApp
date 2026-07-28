@@ -4,13 +4,13 @@
     "net10.0": {
       "FluentValidation": {
         "type": "Direct",
-        "requested": "[11.*, )",
+        "requested": "[11.12.0, )",
         "resolved": "11.12.0",
         "contentHash": "Wim3rI1nGZKO5S/lgJ0ZpD3W/uu1CECoJ8pETzC8av34ejr+jCDr4paKhSJRG0Ltcv8UjdxtYCynG+RUEfEUDA=="
       },
       "FluentValidation.DependencyInjectionExtensions": {
         "type": "Direct",
-        "requested": "[11.*, )",
+        "requested": "[11.12.0, )",
         "resolved": "11.12.0",
         "contentHash": "lS+nClm9NEROCD5ITprZq9bVZEAoTyUb42xbm8Z80pHdRPdExISaypEZiLIJWDLfq2/j64sZgUcmgm7hjrZS+Q==",
         "dependencies": {
@@ -20,7 +20,7 @@
       },
       "MediatR": {
         "type": "Direct",
-        "requested": "[12.*, )",
+        "requested": "[12.5.0, )",
         "resolved": "12.5.0",
         "contentHash": "vqm2H8/nqL5NAJHPhsG1JOPwfkmbVrPyh4svdoRzu+uZh6Ex7PRoHBGsLYC0/RWCEJFqD1ohHNpteQvql9OktA==",
         "dependencies": {

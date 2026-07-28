@@ -1,5 +1,5 @@
 name: Build and Deploy taskboard-06-api
- 
+
 on:
   push:
     branches: [ main ]
@@ -7,6 +7,7 @@ on:
       - 'src/**'
       - 'tests/**'
       - 'TodoApp.sln'
+      - 'Directory.Build.props'
       - '.github/workflows/api-ci-cd.yml'
   pull_request:
     branches: [ main ]
@@ -14,60 +15,73 @@ on:
       - 'src/**'
       - 'tests/**'
       - 'TodoApp.sln'
+      - 'Directory.Build.props'
       - '.github/workflows/api-ci-cd.yml'
   workflow_dispatch:
- 
+
 # Required for OIDC (federated) login to Azure — no stored password/publish-profile.
 permissions:
   id-token: write
   contents: read
- 
+
+concurrency:
+  group: api-ci-cd-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  # Enforces RestoreLockedMode from Directory.Build.props — restore fails rather than silently
+  # resolving a package version that differs from packages.lock.json (review finding M5).
+  ContinuousIntegrationBuild: true
+
 jobs:
-  build-and-deploy:
-    name: Build & Deploy API
+  build-and-test:
+    name: Build & Test
     runs-on: ubuntu-latest
     timeout-minutes: 20
- 
+
     steps:
+      # Actions are pinned to commit SHAs, not tags: a tag can be repointed by a compromised
+      # maintainer account, and these jobs hold Azure OIDC credentials (review finding M11).
+      # Dependabot understands SHA pins and keeps raising bumps.
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0
           persist-credentials: false
- 
-      - name: "Debug: repo files & lockfiles"
-        run: |
-          echo "PWD: $(pwd)"
-          echo "GITHUB_WORKSPACE: $GITHUB_WORKSPACE"
-          echo "=== Git status ==="
-          git status --porcelain
-          echo "HEAD branch and SHA:"
-          git rev-parse --abbrev-ref HEAD
-          git rev-parse HEAD
-          echo "=== List repo root ==="
-          ls -la
-          echo "=== Find all packages.lock.json files ==="
-          find . -type f -name 'packages.lock.json' -print -exec ls -l {} \; || true
-          echo "=== Tracked files with packages.lock.json in name ==="
-          git ls-files | grep -i 'packages.lock.json' || true
- 
+
       - name: Setup .NET
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
         with:
           dotnet-version: '10.x'
           cache: true
-          # This wildcard tells GitHub to look inside Application, WebAPI, etc.
           cache-dependency-path: '**/packages.lock.json'
- 
-      - name: Restore dependencies
-        run: dotnet restore TodoApp.sln --use-lock-file
- 
+
+      # --locked-mode: fail if resolution would differ from the committed lock files.
+      - name: Restore dependencies (locked)
+        run: dotnet restore TodoApp.sln --locked-mode
+
       - name: Build solution
         run: dotnet build TodoApp.sln --configuration Release --no-restore
- 
+
       - name: Run unit tests
         run: dotnet test tests/TodoApp.UnitTests/TodoApp.UnitTests.csproj --configuration Release --no-build
- 
+
+      # The auth flows are only exercised end to end here — previously built but never run
+      # (review finding L1).
+      - name: Run integration tests
+        run: dotnet test tests/TodoApp.IntegrationTests/TodoApp.IntegrationTests.csproj --configuration Release --no-build
+
+      # Fails the build on any known-vulnerable package, direct or transitive (review finding M6).
+      - name: Audit dependencies for known vulnerabilities
+        run: |
+          set -euo pipefail
+          dotnet list TodoApp.sln package --vulnerable --include-transitive 2>&1 | tee audit.log
+          if grep -qiE '\b(Critical|High|Moderate)\b' audit.log; then
+            echo "::error title=Vulnerable dependency::A package with a known advisory is referenced. See the log above."
+            exit 1
+          fi
+          echo "No vulnerable packages reported."
+
       - name: Publish API
         run: dotnet publish src/TodoApp.WebApi/TodoApp.WebApi.csproj --configuration Release --no-build --output ./publish
 
@@ -78,31 +92,46 @@ jobs:
             exit 1
           fi
           echo "Publish OK: $(ls -1 ./publish | wc -l) files."
- 
-      # Keep the build output as a downloadable artifact (handy for PR builds and manual deploys).
+
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: api-publish
           path: ./publish
- 
-      # ---- Deploy ----
-      # Auto-deploys on push to main. A manual "Run workflow" (workflow_dispatch) deploys
-      # whichever branch is selected in the Actions UI — this is how the EF Core (main) and
-      # Dapper (refactor/dapper) branches are each shipped on demand to the same App Service.
-      # PRs still build + test but never deploy.
- 
+          retention-days: 30
+
+  # ---- Deploy ----
+  # Auto-deploys on push to main. A manual "Run workflow" (workflow_dispatch) deploys whichever
+  # branch is selected in the Actions UI — this is how the EF Core (main) and Dapper (dapper)
+  # branches are each shipped on demand to the same App Service. PRs build + test but never deploy.
+  #
+  # Split into its own job gated on `environment:` so a manual deploy of a non-main branch can be
+  # held for approval via the environment's protection rules, rather than shipping straight from
+  # whatever branch the operator picked.
+  deploy:
+    name: Deploy API
+    needs: build-and-test
+    if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: production
+
+    steps:
+      - name: Download build artifact
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: api-publish
+          path: ./publish
+
       - name: Azure login
-        if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
-        uses: azure/login@v2
+        uses: azure/login@a457da9ea143d694b1b9c7c869ebb04ebe844ef5 # v2
         with:
           client-id: ${{ secrets.AZUREAPPSERVICE_CLIENTID_566B4FFECC144FF99662F3E334946913 }}
           tenant-id: ${{ secrets.AZUREAPPSERVICE_TENANTID_666F8329ACAC4EF9A4E3DFE024EB99CA }}
           subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID_0056D27AD4F64315858EF3757BCD85C7 }}
-          
+
       - name: Deploy to Azure Web App
-        if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
-        uses: azure/webapps-deploy@v3
+        uses: azure/webapps-deploy@02a81bead70021f5284939794bcec79c271ab383 # v3
         with:
           app-name: taskboard-06-api
           package: ./publish
