@@ -8,21 +8,37 @@ on:
     branches: [ frontend ]
   workflow_dispatch:
 
+# Least privilege, matching the API workflows — this file was missed when those were hardened
+# (review finding M8). Without it the job inherited the repository-default GITHUB_TOKEN scope.
+# pull-requests: write is needed for the SWA action's preview-environment PR comments.
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: frontend-deploy-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build-and-deploy:
     # Run on pushes and on open/updated PRs (skip the "closed" event — that's handled below).
     if: github.event_name != 'pull_request' || github.event.action != 'closed'
     name: Build & Deploy Frontend
     runs-on: ubuntu-latest
+    timeout-minutes: 15
+
     steps:
+      # Actions pinned to commit SHAs rather than mutable tags (review finding M11), and
+      # persist-credentials: false so the checkout token isn't left in the runner's git config
+      # for the rest of the job (M8).
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          submodules: true
+          persist-credentials: false
           lfs: false
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: '22'
           cache: 'npm'
@@ -31,13 +47,25 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # Fails the build on a known-vulnerable dependency. Until now nothing scanned this tree at
+      # all — dependabot.yml declared only nuget and github-actions (review finding M6).
+      - name: Audit dependencies
+        run: npm audit --audit-level=high
+
       - name: Run frontend tests (gate - deploy is skipped if these fail)
         run: npm test
 
       - name: Build And Deploy
         id: builddeploy
-        uses: Azure/static-web-apps-deploy@v1
+        # Skip for PRs from forks: secrets are not exposed to them, so the deploy would fail
+        # confusingly rather than meaningfully. Pushes and same-repo PRs still deploy.
+        if: >-
+          github.event_name != 'pull_request' ||
+          github.event.pull_request.head.repo.full_name == github.repository
+        uses: Azure/static-web-apps-deploy@1a947af9992250f3bc2e68ad0754c0b0c11566c9 # v1
         # Vite env vars are BUILD-TIME — stored as GitHub repository Variables.
+        # NOTE: VITE_API_URL must match the connect-src origin in staticwebapp.config.json,
+        # or the browser blocks every API call. See SECURITY-HEADERS.md.
         env:
           VITE_API_URL: ${{ vars.VITE_API_URL }}
           VITE_GOOGLE_CLIENT_ID: ${{ vars.VITE_GOOGLE_CLIENT_ID }}
@@ -55,10 +83,11 @@ jobs:
     if: github.event_name == 'pull_request' && github.event.action == 'closed'
     name: Close Pull Request
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: Close Pull Request
         id: closepullrequest
-        uses: Azure/static-web-apps-deploy@v1
+        uses: Azure/static-web-apps-deploy@1a947af9992250f3bc2e68ad0754c0b0c11566c9 # v1
         with:
           azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN_SALMON_FIELD_054249810 }}
           action: "close"

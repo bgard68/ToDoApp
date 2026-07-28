@@ -1,4 +1,9 @@
-# Dependabot version updates - keeps GitHub Actions and NuGet dependencies current.
+# Dependabot version updates.
+#
+# NOTE: Dependabot only reads this file from the repository's DEFAULT branch (main). This copy on
+# the frontend branch is therefore INERT — it is kept byte-identical to main's so the two cannot
+# contradict each other. Add or change ecosystems on main, using target-branch to reach this one.
+# (Review finding M6: the npm ecosystem was missing entirely, so this tree was unmonitored.)
 # Alerts must also be enabled in the repo Settings for these to surface.
 # https://docs.github.com/code-security/dependabot/dependabot-version-updates
 version: 2
@@ -13,6 +18,38 @@ updates:
   # NuGet packages across the solution (TodoApp.sln at the repo root)
   - package-ecosystem: "nuget"
     directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+
+  # GitHub Actions on the dapper branch. Dependabot only reads this file from the DEFAULT branch,
+  # so every branch that needs updates must be declared here explicitly (review finding M6).
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    target-branch: "dapper"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+
+  - package-ecosystem: "nuget"
+    directory: "/"
+    target-branch: "dapper"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+
+  # The React SPA lives on the 'frontend' branch. Without these entries its dependency tree —
+  # React, Vite, Vitest and everything transitive — was monitored by nothing at all (M6).
+  - package-ecosystem: "npm"
+    directory: "/"
+    target-branch: "frontend"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    target-branch: "frontend"
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 5

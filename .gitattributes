@@ -1,0 +1,15 @@
+# Normalise text files to LF in the repository.
+* text=auto
+
+# index.html MUST be LF in the working tree, not just in the repository.
+#
+# Its inline theme script is allow-listed in the CSP by SHA-256 hash (review finding H2, see
+# SECURITY-HEADERS.md). A browser hashes the exact bytes it receives, so CRLF and LF produce
+# different digests. The deployed artifact is built on Linux (LF); without this rule a Windows
+# checkout would hold CRLF, and a Docker image built from that working copy would serve a script
+# the CSP rejects — the theme flash returns and the only clue is a console error.
+index.html text eol=lf
+
+# Same reasoning for the two files that carry the hash.
+nginx.conf text eol=lf
+staticwebapp.config.json text eol=lf
