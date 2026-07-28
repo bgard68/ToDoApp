@@ -1,0 +1,100 @@
+name: Container build & scan
+
+# Proves the API container image actually builds, and scans it for known CVEs.
+#
+# Two reasons this exists:
+#  1. The Dockerfile is not on the deployment path (App Service takes a zip), so nothing else
+#     exercises it — it could rot silently while the README advertises `docker compose up`.
+#  2. It closes the container-scanning gap left open by review finding M6. Building here also
+#     validates the locked-mode restore added for M5: if the lock files and project files
+#     disagree, this build fails.
+
+on:
+  push:
+    branches: [ main, dapper ]
+    paths:
+      - 'Dockerfile.api'
+      - 'docker-compose.yml'
+      - 'src/**'
+      - 'Directory.Build.props'
+      - '.github/workflows/container-build.yml'
+  pull_request:
+    branches: [ main, dapper ]
+    paths:
+      - 'Dockerfile.api'
+      - 'docker-compose.yml'
+      - 'src/**'
+      - 'Directory.Build.props'
+      - '.github/workflows/container-build.yml'
+  schedule:
+    # Base images pick up CVEs without the Dockerfile changing.
+    - cron: '23 5 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: container-build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-scan:
+    name: Build API image & scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      security-events: write   # to upload the Trivy SARIF
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+
+      # Loaded into the local daemon rather than pushed — there is no registry in this
+      # deployment, the point is to prove it builds and to have something to scan.
+      - name: Build API image
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: .
+          file: ./Dockerfile.api
+          push: false
+          load: true
+          tags: todoapp-api:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # Confirms the M10 fix held: the image must not run as root.
+      - name: Image must not run as root
+        run: |
+          set -euo pipefail
+          user=$(docker image inspect todoapp-api:ci --format '{{.Config.User}}')
+          echo "Config.User = '${user}'"
+          if [ -z "$user" ] || [ "$user" = "root" ] || [ "$user" = "0" ]; then
+            echo "::error title=Container runs as root::Dockerfile.api must set a non-root USER (review finding M10)."
+            exit 1
+          fi
+
+      - name: Scan image for vulnerabilities
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: todoapp-api:ci
+          format: sarif
+          output: trivy-api.sarif
+          severity: CRITICAL,HIGH
+          # Report rather than block: base-image CVEs appear and are fixed upstream on
+          # Microsoft's schedule, not ours, so failing the build would just teach everyone to
+          # ignore a red X. Findings land in the Security tab alongside CodeQL.
+          exit-code: '0'
+          ignore-unfixed: true
+
+      - name: Upload scan results
+        uses: github/codeql-action/upload-sarif@4187e74d05793876e9989daffde9c3e66b4acd07 # v3
+        with:
+          sarif_file: trivy-api.sarif
+          category: trivy-container

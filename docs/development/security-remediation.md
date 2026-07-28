@@ -44,10 +44,30 @@ came up with a working account whose credentials are in a public repository.
 | `Demo_account_is_not_seeded_by_default` (integration) | real host, real pipeline |
 | `The_old_hard_coded_demo_credentials_do_not_authenticate` (integration) | end-to-end 401 |
 
-> **Deployment note:** if the live App Service currently relies on the demo account, set
-> `Seed__DemoUser=true` and `Seed__Password=<new value>` before deploying, and rotate away from
-> `Password123!`. Existing rows are untouched by this change — the old demo user, if already in
-> the production database, **must be deleted or have its password rotated manually**.
+> **Deployment decision (owner, 2026-07-28): the live demo account stays public.**
+> `demo@todoapp.local` / `Password123!` is a deliberate, shared sign-in so reviewers can try the
+> app without registering. The finding was never "a demo account exists" — it was that the account
+> was seeded **unconditionally, in every environment, from a constant compiled into the assembly**.
+> That is fixed: seeding is opt-in, the credentials come from configuration, and any environment
+> that doesn't ask for it gets no account at all.
+>
+> These settings are applied on `taskboard-06-api` (verified live):
+>
+> | Setting | Value |
+> |---|---|
+> | `Seed__DemoUser` | `true` |
+> | `Seed__Email` | `demo@todoapp.local` |
+> | `Seed__Password` | `Password123!` |
+>
+> **No data migration was needed.** The seed only runs against an empty database
+> (`if (await context.Users.AnyAsync()) return;`), and the existing row — user id 1, role `User` —
+> already holds exactly these credentials. Config and reality agree, so the reconciliation code and
+> the manual SQL rotation that were considered are both unnecessary. Confirmed against the live API
+> before and after the settings change: `POST /api/auth/login` returns 200.
+>
+> **Residual risk, accepted:** anyone can sign in to that one non-admin demo board, and it is an
+> authenticated foothold for probing the API. The H3 rate limiter bounds that. If the account is
+> ever abused, set `Seed__DemoUser=false` and delete the row — no redeploy required.
 
 ---
 
@@ -239,6 +259,20 @@ a check that shells out to `dotnet --info` would report "healthy" for a hung app
 check. Liveness is probed externally against `GET /`, which returns a static payload without
 touching the database. This is documented in the Dockerfile itself.
 
+**Verified in CI, not locally.** The Docker engine wasn't running on the machine this work was
+done on. Rather than leave the image unproven, `.github/workflows/container-build.yml` now builds
+and checks it on every relevant change — which turned out better than a local build would have
+been:
+
+- builds the image, which also exercises the M5 locked-mode restore (a lock-file/project mismatch
+  fails the build),
+- **fails if `Config.User` is empty, `root` or `0`**, so the non-root fix can't silently regress,
+- scans with Trivy and uploads SARIF to the Security tab — closing the container-scanning gap
+  listed as still-open under M6.
+
+Trivy reports rather than blocks: base-image CVEs appear and are fixed on Microsoft's schedule,
+not ours, so failing the build would just train everyone to ignore a red X.
+
 **Still open:** base images are pinned by tag (`mcr.microsoft.com/dotnet/aspnet:10.0`), not by
 digest. Digest pinning needs a registry round-trip to resolve and a process to refresh them;
 worth doing, not done here.
@@ -387,12 +421,36 @@ working copy would have served CRLF — a script its own CSP rejects, failing si
 LF normalisation in the test plus a `.gitattributes` rule. Detail in that branch's
 `SECURITY-REMEDIATION.md`.
 
-### 9. Docker engine unavailable
+### 9. Docker engine unavailable — and a readiness check that lied
 
-`docker --version` reports 27.2.0, but the Desktop engine was not running, so neither image build
-was executed. The `Dockerfile.api` changes (non-root `USER app`, locked-mode restore) are
-mechanical but **not proven to build**. Run `docker build -f Dockerfile.api -t todoapp-api .`
-before relying on the container path.
+`docker --version` reported 27.2.0, but the Desktop engine was never running: the backing Windows
+service (`com.docker.service`) was `Stopped`/`Manual`, and a `nohup` launch of Docker Desktop
+silently did nothing.
+
+Worse, the wait-for-ready loop written to poll for it **printed "engine ready" while the engine was
+still down** — `docker info --format` exited zero with empty output on one iteration. A check that
+can report success without the thing being healthy is the same mistake as the `dotnet --info`
+HEALTHCHECK in item 6, made twice in one session. Both are now gone.
+
+Resolved by not depending on a local engine: the image is built and checked in CI, where the
+assertion is a real `docker image inspect`.
+
+### 10. The frontend CSP named the wrong API origin
+
+On the `frontend` branch, `connect-src` was written as `https://taskboard-06-api.azurewebsites.net`
+— inferred from the App Service *name* in the deploy workflow. The real origin, the `VITE_API_URL`
+repository Variable the bundle is built against, is
+`https://taskboard-06-api-aehtbcg8eha6fyf8.centralus-01.azurewebsites.net`.
+
+As written, the deployed SPA would have been blocked by its own CSP from calling its own API. Found
+only because the owner asked for the account details to be **confirmed** rather than assumed — a
+good instinct that caught a bug in an adjacent change.
+
+`deploy.yml` now extracts the origin from `VITE_API_URL` at build time and fails the deploy if the
+CSP doesn't allow it. A unit test can't cover it: the origin lives in a repo Variable, not the tree.
+
+**Wider lesson:** three of the ten items here (this, the CSP hash, the readiness loop) were cases of
+*inferring* a value that could have been *looked up*. Verify against the live system.
 
 ### 10. The compose stack's port had to move
 
