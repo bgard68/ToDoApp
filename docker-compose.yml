@@ -35,8 +35,10 @@ services:
     restart: unless-stopped
     depends_on:
       - api
+    # 8080 on both sides: the web image is nginx-unprivileged, which runs as a non-root
+    # user and therefore listens on 8080 rather than 80 (review finding M10).
     ports:
-      - "8080:80"
+      - "8080:8080"
 
 volumes:
   todo-data:
