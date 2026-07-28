@@ -172,9 +172,19 @@ CI, which already used `npm ci`. Two build systems, same commit, potentially dif
 - Added a real `HEALTHCHECK` (the unprivileged nginx image includes `wget`).
 - `server_tokens off` so the exact nginx version isn't advertised.
 
-**Not verified at runtime:** the Docker engine wasn't running on this machine, so the image build
-was not executed. The changes are mechanical, but they have not been proven to build. Run
-`docker build -t todoapp-web .` before relying on the container path.
+**Verification moved to CI.** The Docker engine wasn't running on the machine this work was done
+on, so rather than leave the image unproven, `.github/workflows/container-build.yml` now builds it
+on every relevant change. That workflow does more than a local build would have:
+
+- builds the image (which also proves `npm ci` succeeds against the committed lock file),
+- **fails if `Config.User` is empty, `root` or `0`** — so the M10 fix can't silently regress,
+- starts the container and asserts the five security headers on a **real response**, which the
+  unit tests cannot do (they only read the config text),
+- scans with Trivy and uploads SARIF to the Security tab, closing the container-scanning gap
+  listed as still-open under M6.
+
+Trivy reports rather than blocks: base-image CVEs appear and are fixed on the image maintainer's
+schedule, not ours, so a failing build would just train everyone to ignore a red X.
 
 **Still open:** base images are pinned by tag, not digest. Digest pinning needs a registry
 round-trip to resolve and a process to refresh them.
@@ -265,7 +275,31 @@ packages sat elsewhere; the package warns this can cause `TypeLoadException` at 
 predates this work — it was in the baseline build output. Pinning to **8.19.2** (matching `main`)
 cleared it and aligned both branches on the same identity stack.
 
-### 9. Docker engine unavailable
+### 9. Docker engine unavailable — and a bad readiness check
 
-`docker --version` reports 27.2.0 but the Desktop engine wasn't running, so neither image build was
-executed. Stated plainly rather than assumed — see M10.
+`docker --version` reported 27.2.0, but the Desktop engine was never running: the backing Windows
+service (`com.docker.service`) was `Stopped`/`Manual`, and a `nohup` launch of Docker Desktop
+silently did nothing.
+
+Worse, the wait-for-ready loop written to poll for it **printed "engine ready" when the engine was
+still down** — `docker info --format` exited zero with empty output on one iteration. A health
+check that can report success without the thing being healthy is the same class of mistake as the
+`dotnet --info` HEALTHCHECK in item 7, made twice in one session.
+
+Resolved by not depending on a local engine at all: the images are built and scanned in CI
+(`container-build.yml`), where the check is a real `docker image inspect` and a real HTTP request.
+
+### 10. The CSP named the wrong API origin
+
+The `connect-src` directive was written as `https://taskboard-06-api.azurewebsites.net`, inferred
+from the App Service *name* in the deploy workflow. The actual origin — the `VITE_API_URL`
+repository Variable the bundle is built against — is
+`https://taskboard-06-api-aehtbcg8eha6fyf8.centralus-01.azurewebsites.net`.
+
+As written, the deployed SPA would have been blocked by its own CSP from calling its own API:
+every request failing, with only a console message to explain it. Found by checking the live value
+instead of trusting the inference.
+
+A unit test can't catch this — the origin lives in a repo Variable, not in the tree — so
+`deploy.yml` now extracts the origin from `VITE_API_URL` at build time and fails the deploy if the
+CSP doesn't allow it.
