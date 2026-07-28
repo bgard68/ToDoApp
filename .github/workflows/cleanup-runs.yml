@@ -1,8 +1,12 @@
 name: Cleanup old workflow runs
 
-# Deletes old GitHub Actions runs to keep the Actions history tidy (the every-10-min
-# keep-warm job piles up fast). Keeps the most recent completed run of EACH workflow
-# and deletes the rest. In-progress runs are never touched.
+# Deletes old runs of the NOISY workflows only, to keep the Actions history readable (the
+# every-10-min keep-warm job piles up fast). In-progress runs are never touched.
+#
+# Scoped deliberately: this used to delete all but one run of EVERY workflow, which took the
+# build/deploy and secret-scan history with it — the evidence you need to answer "what shipped,
+# when, and did it pass?" after an incident (review finding M9). Build, security and deploy
+# history is now retained; only the heartbeat noise is pruned.
 #
 # Runs on a daily schedule and can be triggered manually. Manual runs accept a "keep"
 # input if you want to retain more than one run per workflow for that run.
@@ -33,15 +37,27 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
       KEEP: ${{ github.event.inputs.keep || '1' }}
+      # Only these workflows are pruned. Anything not listed — build/deploy, CodeQL, secret scan —
+      # keeps its full history as the CI/CD audit trail (M9).
+      PRUNABLE: 'keep-warm.yml cleanup-runs.yml'
     steps:
-      - name: Delete old runs, keeping the most recent per workflow
+      - name: Delete old runs of the high-frequency workflows
         run: |
           set -euo pipefail
           repo="${{ github.repository }}"
-          echo "Repo: $repo   Keeping $KEEP most-recent completed run(s) per workflow"
+          echo "Repo: $repo   Keeping $KEEP most-recent completed run(s) of: $PRUNABLE"
 
-          # Every workflow in the repo (includes disabled ones).
-          workflow_ids=$(gh api --paginate "repos/$repo/actions/workflows" --jq '.workflows[].id')
+          # Resolve only the prunable workflows by file name; everything else is left alone.
+          workflow_ids=""
+          for wf_file in $PRUNABLE; do
+            id=$(gh api --paginate "repos/$repo/actions/workflows" \
+              --jq ".workflows[] | select(.path == \".github/workflows/$wf_file\") | .id" || true)
+            if [ -n "$id" ]; then
+              workflow_ids="$workflow_ids $id"
+            else
+              echo "note: no workflow found for $wf_file (skipping)"
+            fi
+          done
 
           total_deleted=0
           for wf in $workflow_ids; do

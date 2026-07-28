@@ -22,9 +22,16 @@ services:
     expose:
       - "8080"
 
+  # The SPA lives on the 'frontend' branch, not in this tree (moved in 04c1d8f), so this compose
+  # file could not build — `context: ./frontend` pointed at a directory that does not exist on
+  # this branch (review finding L3). Check the branch out beside this one and point the context
+  # at it:
+  #
+  #   git worktree add ../todoapp-frontend frontend
+  #   FRONTEND_PATH=../todoapp-frontend docker compose up --build
   web:
     build:
-      context: ./frontend
+      context: ${FRONTEND_PATH:?set FRONTEND_PATH to a checkout of the 'frontend' branch}
     restart: unless-stopped
     depends_on:
       - api

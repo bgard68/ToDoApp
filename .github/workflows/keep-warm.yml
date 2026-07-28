@@ -1,9 +1,9 @@
 name: Keep API warm
 
 # Pings the API on a schedule so the Free (F1) App Service instance doesn't unload
-# between visits. It hits the ROOT endpoint only (which 302-redirects to Swagger),
-# so it warms the *app* WITHOUT querying the database — that way it does not burn
-# the Azure SQL serverless free-limit. The occasional DB cold start that still
+# between visits. It hits the ROOT endpoint only (a static health payload outside
+# Development), so it warms the *app* WITHOUT querying the database — that way it does
+# not burn the Azure SQL serverless free-limit. The occasional DB cold start that still
 # happens is handled gracefully client-side (apiClient.js "Waking the server up…").
 #
 # Notes:

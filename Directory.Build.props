@@ -1,0 +1,22 @@
+<Project>
+  <PropertyGroup>
+    <!-- Instructs dotnet restore to create packages.lock.json files for projects that use PackageReference -->
+    <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
+
+    <!--
+      Treat the lock file as authoritative on CI: restore FAILS if resolution would differ from
+      packages.lock.json, instead of silently rewriting it. Without this, the lock files looked
+      like pinning without being it, so a restore could quietly pull a package nobody reviewed
+      (review finding M5). Locally it stays off so adding a package does not need a flag; CI sets
+      ContinuousIntegrationBuild=true and passes the locked-mode restore flag to enforce it.
+
+      After changing a PackageReference version, refresh the lock files by running
+      "dotnet restore TodoApp.sln" with the force-evaluate flag.
+    -->
+    <RestoreLockedMode Condition="'$(ContinuousIntegrationBuild)' == 'true'">true</RestoreLockedMode>
+
+    <!-- Keep the built-in .NET analyzers on across src/ and tests/. -->
+    <EnableNETAnalyzers>true</EnableNETAnalyzers>
+    <AnalysisLevel>latest</AnalysisLevel>
+  </PropertyGroup>
+</Project>

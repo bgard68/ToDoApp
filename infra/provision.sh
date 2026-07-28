@@ -45,7 +45,7 @@ APP_SKU="${APP_SKU:-F1}"                        # F1 = Free. Use B1/S1/P1v3 to s
 WEBAPP_NAME="${WEBAPP_NAME:-${PROJECT}-api-$RANDOM}"   # must be globally unique
 # Linux runtime string for `az webapp create`. The live app kind is generic
 # "app,linux"; adjust to match your stack, e.g. NODE:20-lts, PYTHON:3.12, JAVA:17.
-RUNTIME="${RUNTIME:-DOTNETCORE:8.0}"
+RUNTIME="${RUNTIME:-DOTNETCORE:10.0}"   # matches <TargetFramework>net10.0</TargetFramework> (finding L2)
 
 # Azure SQL (General Purpose serverless Gen5 + free limit — matches taskboard DB)
 SQL_SERVER_NAME="${SQL_SERVER_NAME:-${PROJECT}-sql-$RANDOM}"  # globally unique
@@ -194,13 +194,17 @@ ok "Web app ready (system identity: $WEBAPP_PRINCIPAL_ID)"
 
 # ---- 4. Azure SQL server + serverless database (free limit) -----------------
 log "Creating Azure SQL server '$SQL_SERVER_NAME'"
+# The password is passed on stdin, not as an argv element. Command-line arguments are readable by
+# any local user via /proc/<pid>/cmdline for the lifetime of the process, and land in shell
+# history and az CLI debug logs (review finding M4). The PowerShell twin already used a
+# SecureString/PSCredential; this brings the bash path in line.
 az sql server create \
   --name "$SQL_SERVER_NAME" \
   --resource-group "$RESOURCE_GROUP" \
   --location "$LOCATION" \
   --admin-user "$SQL_ADMIN_USER" \
-  --admin-password "$SQL_ADMIN_PASSWORD" \
-  --output none
+  --admin-password @- \
+  --output none <<< "$SQL_ADMIN_PASSWORD"
 ok "SQL server ready"
 
 log "Creating serverless SQL database '$SQL_DB_NAME'"
@@ -245,8 +249,19 @@ ok "Key Vault ready"
 SQL_CONNECTION_STRING="Server=tcp:${SQL_SERVER_NAME}.database.windows.net,1433;Initial Catalog=${SQL_DB_NAME};Persist Security Info=False;User ID=${SQL_ADMIN_USER};Password=${SQL_ADMIN_PASSWORD};MultipleActiveResultSets=False;Encrypt=True;TrustServerCertificate=False;Connection Timeout=30;"
 
 log "Storing secrets in Key Vault"
-az keyvault secret set --vault-name "$KEYVAULT_NAME" --name SqlConnectionString --value "$SQL_CONNECTION_STRING" --output none
-az keyvault secret set --vault-name "$KEYVAULT_NAME" --name SqlAdminPassword --value "$SQL_ADMIN_PASSWORD" --output none
+# --file reads the value from disk instead of argv (M4). Written to a mode-600 temp file that is
+# removed on exit, including on error.
+SECRET_TMP="$(mktemp)"
+chmod 600 "$SECRET_TMP"
+trap 'rm -f "$SECRET_TMP"' EXIT
+
+printf '%s' "$SQL_CONNECTION_STRING" > "$SECRET_TMP"
+az keyvault secret set --vault-name "$KEYVAULT_NAME" --name SqlConnectionString --file "$SECRET_TMP" --output none
+
+printf '%s' "$SQL_ADMIN_PASSWORD" > "$SECRET_TMP"
+az keyvault secret set --vault-name "$KEYVAULT_NAME" --name SqlAdminPassword --file "$SECRET_TMP" --output none
+
+rm -f "$SECRET_TMP"
 ok "Secrets stored"
 
 log "Granting identities access to Key Vault secrets"

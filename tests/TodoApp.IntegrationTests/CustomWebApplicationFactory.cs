@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using TodoApp.Infrastructure.Persistence;
 
@@ -32,8 +33,25 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>
         _connection.Open();
     }
 
+    /// <summary>
+    /// Configuration applied on top of appsettings for the test host. Rate limits are raised well
+    /// clear of what the suite generates (the whole run shares one client-IP partition), and demo
+    /// seeding is forced off so tests exercise the production default. Override to vary either.
+    /// </summary>
+    protected virtual IEnumerable<KeyValuePair<string, string?>> TestConfiguration =>
+    [
+        new("RateLimiting:Auth:PermitLimit", "10000"),
+        new("RateLimiting:Global:PermitLimit", "10000"),
+        new("Seed:DemoUser", "false"),
+    ];
+
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
+        foreach (var (key, value) in TestConfiguration)
+        {
+            builder.UseSetting(key, value);
+        }
+
         builder.ConfigureTestServices(services =>
         {
             // Replace the real (file-based) DbContext with our shared in-memory connection.

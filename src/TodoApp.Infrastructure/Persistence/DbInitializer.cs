@@ -1,3 +1,4 @@
+using System.Security.Cryptography;
 using Microsoft.EntityFrameworkCore;
 using TodoApp.Application.Common.Interfaces;
 using TodoApp.Domain.Entities;
@@ -6,21 +7,26 @@ using TodoApp.Domain.Enums;
 namespace TodoApp.Infrastructure.Persistence;
 
 /// <summary>
-/// Ensures the database exists and seeds a demo user with a few sample items on first
-/// run. Uses EnsureCreated so the app runs without EF migrations; see the README for
-/// switching to migrations in production.
+/// Ensures the database exists and — when demo seeding is explicitly enabled — creates a demo
+/// user with a few sample items on first run. Uses EnsureCreated so the app runs without EF
+/// migrations; see the README for switching to migrations in production.
 /// </summary>
 public static class DbInitializer
 {
-    public const string DemoEmail = "demo@todoapp.local";
-    public const string DemoPassword = "Password123!";
-
     public static async Task InitializeAsync(
         ApplicationDbContext context,
         IPasswordHasher passwordHasher,
-        IDateTimeProvider dateTime)
+        IDateTimeProvider dateTime,
+        DemoSeedOptions? seed = null)
     {
         await context.Database.EnsureCreatedAsync();
+
+        // Seeding is opt-in. Without this guard a fresh production database would come up with a
+        // known-credential account (review finding H1).
+        if (seed is not { DemoUser: true })
+        {
+            return;
+        }
 
         if (await context.Users.AnyAsync())
         {
@@ -29,7 +35,14 @@ public static class DbInitializer
 
         var now = dateTime.UtcNow;
 
-        var demo = new User(DemoEmail, passwordHasher.Hash(DemoPassword), now, UserRole.User);
+        // Fail closed: an enabled seed with no configured password gets an unguessable one rather
+        // than a constant baked into the assembly. The account exists (so the sample board renders)
+        // but nobody can sign in to it until a real password is configured.
+        var password = string.IsNullOrWhiteSpace(seed.Password)
+            ? Convert.ToBase64String(RandomNumberGenerator.GetBytes(32))
+            : seed.Password;
+
+        var demo = new User(seed.Email, passwordHasher.Hash(password), now, UserRole.User);
         context.Users.Add(demo);
         await context.SaveChangesAsync();
 
@@ -46,7 +59,7 @@ public static class DbInitializer
         var done = new TodoItem(demo.Id, "Set up the project", "Finished tasks land here — note the check mark.", Priority.Low, CatId("Study"), null, now);
         done.MoveTo(TodoStatus.Done, now);
 
-        var seed = new[]
+        var items = new[]
         {
             new TodoItem(demo.Id, "Welcome to your board", "Drag cards between the To Do, In Progress, and Done lanes.", Priority.Medium, CatId("Other"), null, now),
             new TodoItem(demo.Id, "Buy groceries", "Milk, eggs, coffee.", Priority.Medium, CatId("Errands"), now.AddDays(1), now),
@@ -55,7 +68,7 @@ public static class DbInitializer
             done
         };
 
-        context.TodoItems.AddRange(seed);
+        context.TodoItems.AddRange(items);
         await context.SaveChangesAsync();
     }
 }

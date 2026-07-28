@@ -49,7 +49,7 @@ param(
     [string] $AppSku         = 'F1',
     [string] $WebAppName     = "$Project-api-$(Get-Random -Maximum 99999)",
     # Linux runtime for New-AzWebApp; adjust to your stack (e.g. 'NODE|20-lts','PYTHON|3.12')
-    [string] $Runtime        = 'DOTNETCORE|8.0',
+    [string] $Runtime        = 'DOTNETCORE|10.0',   # matches net10.0 (finding L2)
 
     # Azure SQL (General Purpose serverless Gen5 + free limit)
     [string] $SqlServerName  = "$Project-sql-$(Get-Random -Maximum 99999)",

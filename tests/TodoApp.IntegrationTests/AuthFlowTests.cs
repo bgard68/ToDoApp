@@ -38,12 +38,31 @@ public class AuthFlowTests : IClassFixture<CustomWebApplicationFactory>
     [Fact]
     public async Task Login_WithSeededDemoUser_Succeeds()
     {
-        var client = _factory.CreateClient();
+        // Seeding is opt-in since review finding H1, so this test now stands up a host that asks
+        // for it — and supplies the password, rather than relying on a constant in the assembly.
+        using var factory = new SeededDemoFactory();
+        var client = factory.CreateClient();
 
-        var auth = await client.LoginAsync("demo@todoapp.local", "Password123!");
+        var auth = await client.LoginAsync(SeededDemoFactory.Email, SeededDemoFactory.Password);
 
         auth.AccessToken.Should().NotBeNullOrEmpty();
-        auth.User.Email.Should().Be("demo@todoapp.local");
+        auth.User.Email.Should().Be(SeededDemoFactory.Email);
+    }
+
+    /// <summary>A host with demo seeding explicitly enabled (the opt-in path from H1).</summary>
+    private sealed class SeededDemoFactory : CustomWebApplicationFactory
+    {
+        public const string Email = "demo@todoapp.local";
+        public const string Password = "SeededForTests1!";
+
+        protected override IEnumerable<KeyValuePair<string, string?>> TestConfiguration =>
+        [
+            new("RateLimiting:Auth:PermitLimit", "10000"),
+            new("RateLimiting:Global:PermitLimit", "10000"),
+            new("Seed:DemoUser", "true"),
+            new("Seed:Email", Email),
+            new("Seed:Password", Password),
+        ];
     }
 
     [Fact]

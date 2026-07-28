@@ -4,7 +4,7 @@
     "net10.0": {
       "Azure.Extensions.AspNetCore.Configuration.Secrets": {
         "type": "Direct",
-        "requested": "[1.*, )",
+        "requested": "[1.5.1, )",
         "resolved": "1.5.1",
         "contentHash": "2Io9af/y8GH1jfu//BQrYcwb+MZOJG+au2KCv+ltWM6PBCghbhaDyZWDkYWNWIougZgoHtyKM0CnlGi+9XAu/A==",
         "dependencies": {
@@ -14,7 +14,7 @@
       },
       "Azure.Identity": {
         "type": "Direct",
-        "requested": "[1.*, )",
+        "requested": "[1.21.0, )",
         "resolved": "1.21.0",
         "contentHash": "GeFv8sGwRKvDKwI2WFy8r0mhmlxEVZg24Sit2NogTjiSO8RVjllWM65OT6e1sKjOvG8V74y7hAbaELUUPjZQSw==",
         "dependencies": {
@@ -23,7 +23,7 @@
       },
       "Microsoft.AspNetCore.Authentication.JwtBearer": {
         "type": "Direct",
-        "requested": "[10.0.*, )",
+        "requested": "[10.0.10, )",
         "resolved": "10.0.10",
         "contentHash": "VAcqS42zb9WJd9DjPdkVTS5YrQENmNzPNJuRu8VAW7x3TEWUipc4d4hHzVJdFB0h/KLdr4XcXZzRHcUOKVanMQ==",
         "dependencies": {
@@ -32,7 +32,7 @@
       },
       "Swashbuckle.AspNetCore": {
         "type": "Direct",
-        "requested": "[6.*, )",
+        "requested": "[6.9.0, )",
         "resolved": "6.9.0",
         "contentHash": "lvI+XHF21tkwXd2nDCLGJsdhdUYsY3Ax2fWUlvw81Oa6EedtnIAf5tThy8ZnPcz/9/TwsLgjgtX9ifOCIjbEPA==",
         "dependencies": {
@@ -404,10 +404,10 @@
       "todoapp.application": {
         "type": "Project",
         "dependencies": {
-          "FluentValidation": "[11.*, )",
-          "FluentValidation.DependencyInjectionExtensions": "[11.*, )",
-          "MediatR": "[12.*, )",
-          "Microsoft.EntityFrameworkCore": "[10.0.*, )",
+          "FluentValidation": "[11.12.0, )",
+          "FluentValidation.DependencyInjectionExtensions": "[11.12.0, )",
+          "MediatR": "[12.5.0, )",
+          "Microsoft.EntityFrameworkCore": "[10.0.10, )",
           "TodoApp.Domain": "[1.0.0, )"
         }
       },
@@ -417,11 +417,11 @@
       "todoapp.infrastructure": {
         "type": "Project",
         "dependencies": {
-          "Google.Apis.Auth": "[1.*, )",
-          "Microsoft.EntityFrameworkCore.SqlServer": "[10.0.*, )",
-          "Microsoft.EntityFrameworkCore.Sqlite": "[10.0.*, )",
+          "Google.Apis.Auth": "[1.75.0, )",
+          "Microsoft.EntityFrameworkCore.SqlServer": "[10.0.10, )",
+          "Microsoft.EntityFrameworkCore.Sqlite": "[10.0.10, )",
           "SQLitePCLRaw.lib.e_sqlite3": "[3.50.3, )",
-          "System.IdentityModel.Tokens.Jwt": "[8.*, )",
+          "System.IdentityModel.Tokens.Jwt": "[8.19.2, )",
           "TodoApp.Application": "[1.0.0, )",
           "TodoApp.Domain": "[1.0.0, )"
         }

@@ -49,6 +49,11 @@ public class RefreshTokenCommandHandler : IRequestHandler<RefreshTokenCommand, A
 
         if (token.IsExpired(now))
         {
+            // Mark it revoked on the way out. Left active, an expired row keeps failing this
+            // check forever and never trips the reuse detection above, so a stolen-and-expired
+            // token is indistinguishable from a merely stale one (review finding L7).
+            token.Revoke("Expired", now);
+            await _db.SaveChangesAsync(cancellationToken);
             throw new UnauthorizedException("Refresh token has expired.");
         }
 

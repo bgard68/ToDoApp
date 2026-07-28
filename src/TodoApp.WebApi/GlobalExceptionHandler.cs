@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.AspNetCore.Mvc;
 using TodoApp.Application.Common.Exceptions;
+using TodoApp.Application.Common.Logging;
 
 namespace TodoApp.WebApi;
 
@@ -97,11 +98,10 @@ public class GlobalExceptionHandler : IExceptionHandler
 
             default:
                 // Sanitize the user-controlled request path before logging to prevent log
-                // forging (CWE-117 / cs/log-forging): strip carriage returns and line feeds.
-                var requestPath = httpContext.Request.Path.ToString()
-                    .Replace("\r", string.Empty)
-                    .Replace("\n", string.Empty);
-                _logger.LogError(exception, "Unhandled exception processing {Path}", requestPath);
+                // forging (CWE-117 / cs/log-forging). Shared helper so main and dapper cannot
+                // drift on this again — see LogSanitizer and review finding M1.
+                _logger.LogError(exception, "Unhandled exception processing {Path}",
+                    LogSanitizer.Sanitize(httpContext.Request.Path.ToString()));
                 problemDetails = new ProblemDetails
                 {
                     Status = StatusCodes.Status500InternalServerError,

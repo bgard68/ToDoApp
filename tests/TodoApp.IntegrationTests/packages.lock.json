@@ -4,7 +4,7 @@
     "net10.0": {
       "FluentAssertions": {
         "type": "Direct",
-        "requested": "[6.*, )",
+        "requested": "[6.12.2, )",
         "resolved": "6.12.2",
         "contentHash": "8YE+xJmT8wgzEpFuzJ4S62oFhEL/AKouMz1RWPEMEUhy9H11aRQlGIWcHurH5BEy7tbF6gb0CJrs0wOw/AtDcQ==",
         "dependencies": {
@@ -13,7 +13,7 @@
       },
       "Microsoft.AspNetCore.Mvc.Testing": {
         "type": "Direct",
-        "requested": "[10.0.*, )",
+        "requested": "[10.0.10, )",
         "resolved": "10.0.10",
         "contentHash": "pTWE4RtRbb9sl/U9QjZA5oapEZ01ZEMfRilZvvh55ZW97caTQ2XuAF6sgc+7ojKWBbR2qrcWVo5P80gMPuW/tQ==",
         "dependencies": {
@@ -24,7 +24,7 @@
       },
       "Microsoft.EntityFrameworkCore.Sqlite": {
         "type": "Direct",
-        "requested": "[10.0.*, )",
+        "requested": "[10.0.10, )",
         "resolved": "10.0.10",
         "contentHash": "kzg9MuQNJvZQxAU+piSkEzc7/1tpW6n1nVSGGMObu2GgxLK8Nf+6fvZundaznTZ+O2KhfPZ8HFNCzMH3PWDUmA==",
         "dependencies": {
@@ -39,7 +39,7 @@
       },
       "Microsoft.NET.Test.Sdk": {
         "type": "Direct",
-        "requested": "[17.*, )",
+        "requested": "[17.14.1, )",
         "resolved": "17.14.1",
         "contentHash": "HJKqKOE+vshXra2aEHpi2TlxYX7Z9VFYkr+E5rwEvHC8eIXiyO+K9kNm8vmNom3e2rA56WqxU+/N9NJlLGXsJQ==",
         "dependencies": {
@@ -55,7 +55,7 @@
       },
       "xunit": {
         "type": "Direct",
-        "requested": "[2.*, )",
+        "requested": "[2.9.3, )",
         "resolved": "2.9.3",
         "contentHash": "TlXQBinK35LpOPKHAqbLY4xlEen9TBafjs0V5KnA4wZsoQLQJiirCR4CbIXvOH8NzkW4YeJKP5P/Bnrodm0h9Q==",
         "dependencies": {
@@ -66,7 +66,7 @@
       },
       "xunit.runner.visualstudio": {
         "type": "Direct",
-        "requested": "[2.*, )",
+        "requested": "[2.8.2, )",
         "resolved": "2.8.2",
         "contentHash": "vm1tbfXhFmjFMUmS4M0J0ASXz3/U5XvXBa6DOQUL3fEz4Vt6YPhv+ESCarx6M6D+9kJkJYZKCNvJMas1+nVfmQ=="
       },
@@ -842,10 +842,10 @@
       "todoapp.application": {
         "type": "Project",
         "dependencies": {
-          "FluentValidation": "[11.*, )",
-          "FluentValidation.DependencyInjectionExtensions": "[11.*, )",
-          "MediatR": "[12.*, )",
-          "Microsoft.EntityFrameworkCore": "[10.0.*, )",
+          "FluentValidation": "[11.12.0, )",
+          "FluentValidation.DependencyInjectionExtensions": "[11.12.0, )",
+          "MediatR": "[12.5.0, )",
+          "Microsoft.EntityFrameworkCore": "[10.0.10, )",
           "TodoApp.Domain": "[1.0.0, )"
         }
       },
@@ -855,11 +855,11 @@
       "todoapp.infrastructure": {
         "type": "Project",
         "dependencies": {
-          "Google.Apis.Auth": "[1.*, )",
-          "Microsoft.EntityFrameworkCore.SqlServer": "[10.0.*, )",
-          "Microsoft.EntityFrameworkCore.Sqlite": "[10.0.*, )",
+          "Google.Apis.Auth": "[1.75.0, )",
+          "Microsoft.EntityFrameworkCore.SqlServer": "[10.0.10, )",
+          "Microsoft.EntityFrameworkCore.Sqlite": "[10.0.10, )",
           "SQLitePCLRaw.lib.e_sqlite3": "[3.50.3, )",
-          "System.IdentityModel.Tokens.Jwt": "[8.*, )",
+          "System.IdentityModel.Tokens.Jwt": "[8.19.2, )",
           "TodoApp.Application": "[1.0.0, )",
           "TodoApp.Domain": "[1.0.0, )"
         }
@@ -867,10 +867,10 @@
       "todoapp.webapi": {
         "type": "Project",
         "dependencies": {
-          "Azure.Extensions.AspNetCore.Configuration.Secrets": "[1.*, )",
-          "Azure.Identity": "[1.*, )",
-          "Microsoft.AspNetCore.Authentication.JwtBearer": "[10.0.*, )",
-          "Swashbuckle.AspNetCore": "[6.*, )",
+          "Azure.Extensions.AspNetCore.Configuration.Secrets": "[1.5.1, )",
+          "Azure.Identity": "[1.21.0, )",
+          "Microsoft.AspNetCore.Authentication.JwtBearer": "[10.0.10, )",
+          "Swashbuckle.AspNetCore": "[6.9.0, )",
           "TodoApp.Application": "[1.0.0, )",
           "TodoApp.Infrastructure": "[1.0.0, )"
         }

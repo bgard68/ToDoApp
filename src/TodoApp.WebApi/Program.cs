@@ -1,4 +1,6 @@
+using System.Threading.RateLimiting;
 using Azure.Identity;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.OpenApi.Models;
 using TodoApp.Application;
 using TodoApp.Application.Common.Interfaces;
@@ -32,10 +34,78 @@ if (!string.IsNullOrWhiteSpace(keyVaultUri))
 {
     builder.Configuration.AddAzureKeyVault(
         new Uri(keyVaultUri),
-        new ManagedIdentityCredential());
+        new ManagedIdentityCredential(ManagedIdentityId.SystemAssigned));
 }
 
 const string CorsPolicy = "FrontendPolicy";
+
+// Rate limiting. The auth endpoints are anonymous and each login runs 100k PBKDF2 iterations, so
+// without a limiter they are both a credential-stuffing surface and a cheap way to saturate the
+// (Free tier, single instance) CPU — review finding H3. Limits are configurable so a deployment
+// can tune them and tests can drive them.
+var authLimit = builder.Configuration.GetSection("RateLimiting:Auth").Get<RateLimitOptions>() ?? new RateLimitOptions(10, 60);
+var globalLimit = builder.Configuration.GetSection("RateLimiting:Global").Get<RateLimitOptions>() ?? new RateLimitOptions(200, 60);
+
+// Behind a reverse proxy every request appears to come from the proxy, which would collapse all
+// users into one partition and throttle everyone at once. Azure App Service APPENDS the observed
+// client IP to X-Forwarded-For, so the LAST entry is the platform's assertion — but only trust it
+// where such a proxy actually exists, otherwise a client can forge the header to dodge the limit.
+var trustForwardedFor = builder.Configuration.GetValue<bool>("RateLimiting:TrustForwardedFor");
+
+string ClientKey(HttpContext http)
+{
+    if (trustForwardedFor &&
+        http.Request.Headers.TryGetValue("X-Forwarded-For", out var forwarded) &&
+        forwarded.Count > 0)
+    {
+        var hops = forwarded.ToString().Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        if (hops.Length > 0)
+        {
+            // Strip the :port Azure includes, and drop any IPv6 brackets.
+            var last = hops[^1];
+            var colon = last.LastIndexOf(':');
+            if (colon > 0 && last.IndexOf(':') == colon)
+            {
+                last = last[..colon];
+            }
+            return last.Trim('[', ']');
+        }
+    }
+
+    return http.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+}
+
+builder.Services.AddRateLimiter(options =>
+{
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+
+    options.AddPolicy(RateLimitPolicies.Auth, http =>
+        RateLimitPartition.GetFixedWindowLimiter(ClientKey(http), _ => new FixedWindowRateLimiterOptions
+        {
+            PermitLimit = authLimit.PermitLimit,
+            Window = TimeSpan.FromSeconds(authLimit.WindowSeconds),
+            QueueLimit = 0
+        }));
+
+    // Backstop for everything else, so an authenticated caller can't hammer the API either.
+    options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(http =>
+        RateLimitPartition.GetFixedWindowLimiter(ClientKey(http), _ => new FixedWindowRateLimiterOptions
+        {
+            PermitLimit = globalLimit.PermitLimit,
+            Window = TimeSpan.FromSeconds(globalLimit.WindowSeconds),
+            QueueLimit = 0
+        }));
+
+    options.OnRejected = async (context, cancellationToken) =>
+    {
+        context.HttpContext.Response.Headers.RetryAfter =
+            ((int)TimeSpan.FromSeconds(authLimit.WindowSeconds).TotalSeconds).ToString();
+        context.HttpContext.Response.ContentType = "application/problem+json";
+        await context.HttpContext.Response.WriteAsync(
+            """{"title":"Too many requests.","status":429,"detail":"Rate limit exceeded. Try again shortly."}""",
+            cancellationToken);
+    };
+});
 
 var allowedOrigins = builder.Configuration
     .GetSection("Cors:AllowedOrigins")
@@ -92,6 +162,13 @@ builder.Services.AddSwaggerGen(options =>
 
 var app = builder.Build();
 
+// Demo seeding is opt-in and never implicit (review finding H1). appsettings.json ships
+// DemoUser=false for every environment; appsettings.Development.json turns it on for local work.
+// A deployed instance that wants the demo account must set Seed__DemoUser and Seed__Password
+// explicitly, and the password comes from configuration rather than a constant in the assembly.
+var demoSeed = builder.Configuration.GetSection(DemoSeedOptions.SectionName).Get<DemoSeedOptions>()
+    ?? new DemoSeedOptions();
+
 // Create and seed the database on startup — but never let a cold/paused database (e.g. Azure
 // SQL serverless waking from auto-pause) block the app from starting. If the DB is unreachable
 // here, we log and carry on; the schema/seed is retried in the background until it succeeds, and
@@ -105,7 +182,7 @@ using (var scope = app.Services.CreateScope())
         var context = services.GetRequiredService<ApplicationDbContext>();
         var passwordHasher = services.GetRequiredService<IPasswordHasher>();
         var dateTime = services.GetRequiredService<IDateTimeProvider>();
-        await DbInitializer.InitializeAsync(context, passwordHasher, dateTime);
+        await DbInitializer.InitializeAsync(context, passwordHasher, dateTime, demoSeed);
     }
     catch (Exception ex)
     {
@@ -126,7 +203,8 @@ using (var scope = app.Services.CreateScope())
                     await DbInitializer.InitializeAsync(
                         rs.GetRequiredService<ApplicationDbContext>(),
                         rs.GetRequiredService<IPasswordHasher>(),
-                        rs.GetRequiredService<IDateTimeProvider>());
+                        rs.GetRequiredService<IDateTimeProvider>(),
+                        demoSeed);
                     startupLogger.LogInformation("Database initialization completed on background attempt {Attempt}.", attempt);
                     break;
                 }
@@ -141,6 +219,16 @@ using (var scope = app.Services.CreateScope())
 
 app.UseExceptionHandler();
 
+// Baseline response headers on everything, including error responses (review finding H2).
+app.UseSecurityHeaders();
+
+if (!app.Environment.IsDevelopment())
+{
+    // App Service already sets httpsOnly, but the app should not depend on the host for this.
+    app.UseHsts();
+    app.UseHttpsRedirection();
+}
+
 if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();
@@ -149,6 +237,8 @@ if (app.Environment.IsDevelopment())
 
 app.UseCors(CorsPolicy);
 
+app.UseRateLimiter();
+
 app.UseAuthentication();
 app.UseAuthorization();
 
@@ -156,8 +246,17 @@ app.MapAuthEndpoints();
 app.MapCategoryEndpoints();
 app.MapTodoEndpoints();
 
-app.MapGet("/", () => Results.Redirect("/swagger"))
-   .ExcludeFromDescription();
+// Swagger is only mapped in development; elsewhere the redirect just produced a 404 (finding L13).
+if (app.Environment.IsDevelopment())
+{
+    app.MapGet("/", () => Results.Redirect("/swagger"))
+       .ExcludeFromDescription();
+}
+else
+{
+    app.MapGet("/", () => Results.Ok(new { status = "ok" }))
+       .ExcludeFromDescription();
+}
 
 app.Run();
 
