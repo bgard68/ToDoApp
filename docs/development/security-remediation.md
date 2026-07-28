@@ -362,3 +362,90 @@ dotnet test TodoApp.sln -c Release    # 81 pass
 - **The SQL layer needed no changes.** The Dapper repositories were already fully parameterised,
   scoped by `UserId` on every query, and escaping `LIKE` wildcards with an explicit `ESCAPE`
   clause. The review found nothing to fix there.
+
+---
+
+## Bugs and surprises hit during this work
+
+Recorded because several of them are traps the next person will hit too.
+
+### 1. `ConfigureAppConfiguration` did not override `appsettings.Development.json` in the test host
+
+The integration-test factory first set rate limits with
+`builder.ConfigureAppConfiguration(c => c.AddInMemoryCollection(...))`. It had no effect — the
+limiter kept using the Development value, so the "returns 429" test saw eight `401`s instead of
+tripping the limit. Switching to `builder.UseSetting(key, value)` fixed it.
+
+Worth knowing before debugging a `WebApplicationFactory` override that appears to be ignored under
+minimal hosting. `CustomWebApplicationFactory.TestConfiguration` now carries a comment saying so.
+
+### 2. `--` is illegal inside an XML comment
+
+`Directory.Build.props` failed to load with `MSB4024` after a comment mentioned `--locked-mode`,
+and again after it mentioned `--force-evaluate`. XML forbids `--` inside comments entirely. The
+comments now spell the flags out in words. The failure is confusing because MSBuild reports it
+once per project, so a one-character mistake produces a wall of identical errors.
+
+### 3. Pinning package versions invalidated the lock files
+
+Changing `MediatR 12.*` to `12.5.0` changes the *requested range*, so `--locked-mode` restore
+failed with `NU1004` even though the *resolved* version was identical. One
+`dotnet restore --force-evaluate` regenerates them.
+
+This is exactly the behaviour that was wanted — it is the enforcement working — but it explains why
+the diff shows lock-file churn with no actual version changes. Any future version bump needs the
+same regeneration step; `Directory.Build.props` documents it.
+
+### 4. An existing integration test depended on the demo seed
+
+`Login_WithSeededDemoUser_Succeeds` signed in as `demo@todoapp.local` / `Password123!`. The first
+grep for the seed's usages missed it, because the test hard-codes the strings rather than
+referencing `DbInitializer.DemoEmail`. It now stands up a host with seeding explicitly enabled and
+supplies its own password — which has the side benefit of giving the H1 opt-in path direct
+coverage.
+
+**Lesson for the deployment:** if anything else in the estate signs in as the demo user, it will
+break the same way. Grep for the literal, not just the constant.
+
+### 5. A name collision on `dapper` (`CS0841`)
+
+`DbInitializer` there already had a local `var seed = new[] {...}` (the sample todos). Adding a
+`seed` options parameter produced "cannot use local variable before it is declared". The local was
+renamed to `items`.
+
+### 6. A `HEALTHCHECK` that would have lied
+
+The first draft of `Dockerfile.api` used `HEALTHCHECK CMD dotnet --info`. That always exits 0, so
+it would have reported a hung app as healthy — actively worse than no check, because orchestrators
+trust it. The .NET runtime image ships neither `curl` nor `wget`, so the Dockerfile now has **no**
+HEALTHCHECK, with a comment explaining why and pointing at the external probe instead.
+
+### 7. Pre-existing `IDX00001` warning on `dapper`, surfaced by pinning
+
+`System.IdentityModel.Tokens.Jwt` had floated to 8.20.0 while the `Microsoft.IdentityModel.*`
+packages sat at a different version; that package warns the mismatch can cause `TypeLoadException`
+at runtime. It predates this work — it was in the baseline build output — but floating versions are
+why it drifted. Pinned to **8.19.2**, matching `main`. The warning is gone and both branches now
+resolve the same identity stack.
+
+### 8. On the `frontend` branch, the CSP hash was wrong because of line endings
+
+Caught by the very test written to prevent future drift. A browser hashes the exact bytes it
+receives; the deployed artefact is built on Linux (LF), but a container built from a Windows
+working copy would have served CRLF — a script its own CSP rejects, failing silently. Fixed with
+LF normalisation in the test plus a `.gitattributes` rule. Detail in that branch's
+`SECURITY-REMEDIATION.md`.
+
+### 9. Docker engine unavailable
+
+`docker --version` reports 27.2.0, but the Desktop engine was not running, so neither image build
+was executed. The `Dockerfile.api` changes (non-root `USER app`, locked-mode restore) are
+mechanical but **not proven to build**. Run `docker build -f Dockerfile.api -t todoapp-api .`
+before relying on the container path.
+
+### 10. The compose stack's port had to move
+
+Making the frontend container non-root meant nginx could no longer bind port 80, so it listens on
+8080. `docker-compose.yml` here was updated from `8080:80` to `8080:8080` to match. The browser
+URL is unchanged (`http://localhost:8080`), but a stale container image will fail to connect until
+it is rebuilt.
