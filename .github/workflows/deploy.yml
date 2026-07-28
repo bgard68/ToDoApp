@@ -55,6 +55,27 @@ jobs:
       - name: Run frontend tests (gate - deploy is skipped if these fail)
         run: npm test
 
+      # The CSP names the API origin explicitly in connect-src. If it doesn't match the
+      # VITE_API_URL the bundle is built against, the browser blocks every API call and the app
+      # looks broken with only a console error to explain it. This exact mistake was made once
+      # already (the short host name was used instead of the real one), so it is now a build gate.
+      - name: CSP connect-src must allow VITE_API_URL
+        env:
+          API_URL: ${{ vars.VITE_API_URL }}
+        run: |
+          set -euo pipefail
+          if [ -z "${API_URL:-}" ]; then
+            echo "::error title=VITE_API_URL unset::Set the repository Variable before deploying."
+            exit 1
+          fi
+          origin=$(printf '%s' "$API_URL" | sed -E 's#^(https?://[^/]+).*#\1#')
+          csp=$(python3 -c "import json;print(json.load(open('staticwebapp.config.json'))['globalHeaders']['Content-Security-Policy'])")
+          if ! printf '%s' "$csp" | grep -qF "$origin"; then
+            echo "::error title=CSP mismatch::connect-src does not allow '$origin'. The SPA would be blocked from calling its own API. Update staticwebapp.config.json (see SECURITY-HEADERS.md)."
+            exit 1
+          fi
+          echo "OK: connect-src allows $origin"
+
       - name: Build And Deploy
         id: builddeploy
         # Skip for PRs from forks: secrets are not exposed to them, so the deploy would fail

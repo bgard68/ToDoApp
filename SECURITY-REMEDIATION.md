@@ -45,7 +45,7 @@ default-src 'self';
 script-src 'self' 'sha256-GW825FdRS8YFXkaacjvphmbKysoTTeAxlXyal7guZew=' https://accounts.google.com;
 style-src 'self' 'unsafe-inline';
 img-src 'self' data: https://accounts.google.com https://*.googleusercontent.com;
-connect-src 'self' https://taskboard-06-api.azurewebsites.net https://accounts.google.com;
+connect-src 'self' https://taskboard-06-api-aehtbcg8eha6fyf8.centralus-01.azurewebsites.net https://accounts.google.com;
 frame-src https://accounts.google.com;
 font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'
 ```

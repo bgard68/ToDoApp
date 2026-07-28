@@ -37,7 +37,7 @@ change the script, the test failure message contains the replacement hash.
 `connect-src` names the API host explicitly:
 
 ```
-connect-src 'self' https://taskboard-06-api.azurewebsites.net https://accounts.google.com
+connect-src 'self' https://taskboard-06-api-aehtbcg8eha6fyf8.centralus-01.azurewebsites.net https://accounts.google.com
 ```
 
 This must match the `VITE_API_URL` repository Variable that the build is given. If the API moves,
