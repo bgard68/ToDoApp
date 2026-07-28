@@ -452,7 +452,7 @@ CSP doesn't allow it. A unit test can't cover it: the origin lives in a repo Var
 **Wider lesson:** three of the ten items here (this, the CSP hash, the readiness loop) were cases of
 *inferring* a value that could have been *looked up*. Verify against the live system.
 
-### 10. The compose stack's port had to move
+### 11. The compose stack's port had to move
 
 Making the frontend container non-root meant nginx could no longer bind port 80, so it listens on
 8080. `docker-compose.yml` here was updated from `8080:80` to `8080:8080` to match. The browser
