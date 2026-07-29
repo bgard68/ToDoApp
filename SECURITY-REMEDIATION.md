@@ -71,19 +71,37 @@ Two details worth calling out:
 - `SameSite=None` is forced by the SPA (`*.azurestaticapps.net`) and API (`*.azurewebsites.net`)
   being different sites. Same-origin would be better, but it needs the Static Web Apps
   linked-backend proxy — a **Standard-tier** feature, and this stack is Free tier.
-- **CSRF** is covered by a double-submit companion cookie (`todo_rt_csrf`, deliberately readable)
-  echoed in an `X-Refresh-CSRF` header and compared in constant time. A cross-site attacker can
-  cause the httpOnly cookie to be sent but cannot read the companion to reproduce the header —
-  that is exactly what the same-origin policy prevents.
+- **CSRF** is covered by requiring a custom `X-Refresh-CSRF` header. Its *presence* is the proof,
+  not its value: a cross-site form post or image tag cannot set a custom header, because the
+  browser must first pass a CORS preflight that this API only grants to the SPA's origin.
+
+  > **The first implementation was a double-submit cookie and it was broken.** The companion
+  > cookie is set by the *API's* host; `document.cookie` only ever exposes cookies for the *page's*
+  > host, and the SPA is on a different domain. `readCsrf()` would have returned `null` forever, so
+  > every refresh would have 401'd and every session would have died after 15 minutes. All 97 tests
+  > passed, because they run against a single origin — the cross-domain constraint is structurally
+  > invisible to them. Found by driving the deployed site in a browser. See bug 14 below.
 - Every request now uses `credentials: 'include'`, and the API's CORS policy adds
   `AllowCredentials()` against its explicit origin allow-list (a wildcard origin is impossible
   with credentials — ASP.NET Core throws at startup).
 - `Auth:RefreshTokenInBody` keeps the old body-delivered shape available for the PowerShell smoke
   test and any unmigrated client. Off by default in deployed environments.
 
-**Test** — `src/lib/tokenStorage.test.js` (5): asserts the client never calls
-`localStorage`/`sessionStorage`, sends `credentials: 'include'`, echoes the CSRF header, and never
-puts a refresh token in a request body. It strips comments before matching, so the source can
+**Verified on the live site**, which is the only place the cross-domain behaviour is real: after a
+full reload with `localStorage` **empty**, the session is restored from the cookie alone
+(`Signed in as demo@todoapp.local`), and script cannot read the refresh cookie.
+
+**Caveat, accepted:** `SameSite=None` is forced by the SPA and API being different sites.
+Same-origin would need the Static Web Apps linked-backend proxy — a **Standard-tier** feature, and
+this stack is deliberately Free tier at no cost. Browsers that block third-party cookies (Safari,
+Firefox by default) will not store it, so those users log in again instead of being silently
+refreshed. That is a UX degradation, not a security hole — and strictly better than leaving a
+7-day token in `localStorage` for any XSS to take.
+
+**Tests** — `src/lib/tokenStorage.test.js` (6): the client never calls
+`localStorage`/`sessionStorage`, sends `credentials: 'include'`, sends the CSRF header, never puts
+a refresh token in a request body, and **never reads `document.cookie`** (the guard against
+reintroducing the broken double-submit). It strips comments before matching, so the source can
 still *explain* why localStorage is gone without failing its own guard.
 
 ### How it's prevented going forward
@@ -328,3 +346,24 @@ instead of trusting the inference.
 A unit test can't catch this — the origin lives in a repo Variable, not in the tree — so
 `deploy.yml` now extracts the origin from `VITE_API_URL` at build time and fails the deploy if the
 CSP doesn't allow it.
+
+### 14. The double-submit CSRF cookie could never work cross-domain
+
+The refresh endpoint originally required the client to echo the value of a companion cookie. That
+is the textbook double-submit pattern, and it is wrong for this topology: the cookie is set by
+`taskboard-06-api...azurewebsites.net`, and `document.cookie` on
+`salmon-field-...azurestaticapps.net` only ever exposes cookies for its *own* host.
+
+The check was therefore unsatisfiable. Every refresh would 401; every session would end after the
+15-minute access-token lifetime; users would be silently logged out all day.
+
+**97 API tests and 43 frontend tests passed.** They run against a single origin, so the constraint
+that breaks it cannot appear. It was caught by loading the deployed SPA in a browser and noticing
+the companion cookie was not visible to script — then realising that was correct behaviour, not a
+browser bug.
+
+Replaced with a custom-header-presence check, which needs nothing readable. Confirmed live: reload
+with empty `localStorage` restores the session.
+
+**Lesson, and it is the same one three other bugs in this work taught:** reasoning from code is not
+verification. Test against the thing that actually runs.
