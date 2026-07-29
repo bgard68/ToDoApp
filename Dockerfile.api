@@ -5,17 +5,24 @@
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
 
-# Restore first (leverages layer caching) by copying only the project files.
-COPY src/TodoApp.Domain/TodoApp.Domain.csproj          src/TodoApp.Domain/
-COPY src/TodoApp.Application/TodoApp.Application.csproj  src/TodoApp.Application/
+# Restore first (leverages layer caching) by copying only the project files and lock files.
+# The lock files matter: --locked-mode below fails the build if resolution would differ from
+# what is committed, so the image can't be built from unreviewed package versions (finding M5).
+COPY Directory.Build.props ./
+COPY src/TodoApp.Domain/TodoApp.Domain.csproj                 src/TodoApp.Domain/
+COPY src/TodoApp.Domain/packages.lock.json                    src/TodoApp.Domain/
+COPY src/TodoApp.Application/TodoApp.Application.csproj       src/TodoApp.Application/
+COPY src/TodoApp.Application/packages.lock.json               src/TodoApp.Application/
 COPY src/TodoApp.Infrastructure/TodoApp.Infrastructure.csproj src/TodoApp.Infrastructure/
-COPY src/TodoApp.WebApi/TodoApp.WebApi.csproj            src/TodoApp.WebApi/
-RUN dotnet restore src/TodoApp.WebApi/TodoApp.WebApi.csproj
+COPY src/TodoApp.Infrastructure/packages.lock.json            src/TodoApp.Infrastructure/
+COPY src/TodoApp.WebApi/TodoApp.WebApi.csproj                 src/TodoApp.WebApi/
+COPY src/TodoApp.WebApi/packages.lock.json                    src/TodoApp.WebApi/
+RUN dotnet restore src/TodoApp.WebApi/TodoApp.WebApi.csproj --locked-mode
 
 # Copy the rest of the source and publish.
 COPY src/ src/
 RUN dotnet publish src/TodoApp.WebApi/TodoApp.WebApi.csproj \
-    -c Release -o /app/publish /p:UseAppHost=false
+    -c Release -o /app/publish --no-restore /p:UseAppHost=false
 
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS final
 WORKDIR /app
@@ -23,6 +30,15 @@ COPY --from=build /app/publish .
 
 ENV ASPNETCORE_URLS=http://+:8080
 EXPOSE 8080
+
+# Drop root. The .NET base images ship a non-privileged 'app' user (uid 1654) for exactly this;
+# running as root meant a container escape started with full privileges (review finding M10).
+USER app
+
+# No HEALTHCHECK here on purpose: the aspnet runtime image ships neither curl nor wget, and a
+# check that shells out to `dotnet --info` would report "healthy" for a hung app — worse than no
+# check at all. Liveness is probed externally instead: GET / returns a static payload without
+# touching the database (see docker-compose.yml and the keep-warm workflow).
 
 # Jwt__Key MUST be provided at runtime (the app refuses to start without it).
 ENTRYPOINT ["dotnet", "TodoApp.WebApi.dll"]
