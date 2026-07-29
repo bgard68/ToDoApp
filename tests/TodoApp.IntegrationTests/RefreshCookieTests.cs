@@ -76,14 +76,13 @@ public class RefreshCookieTests : IClassFixture<CookieOnlyFactory>
             new { email = ApiHelpers.UniqueEmail(), password = "Password1" });
         register.EnsureSuccessStatusCode();
 
-        var csrf = ExtractCsrf(register);
-        csrf.Should().NotBeNullOrEmpty();
-
         using var request = new HttpRequestMessage(HttpMethod.Post, "/api/auth/refresh")
         {
             Content = JsonContent.Create(new { })
         };
-        request.Headers.Add("X-Refresh-CSRF", csrf);
+        // Any value: a custom header cannot be attached cross-site without a CORS preflight,
+        // so its presence is the proof — not its contents.
+        request.Headers.Add("X-Refresh-CSRF", "1");
 
         var refreshed = await client.SendAsync(request);
 
@@ -108,23 +107,18 @@ public class RefreshCookieTests : IClassFixture<CookieOnlyFactory>
     }
 
     [Fact]
-    public async Task Refresh_is_rejected_when_the_csrf_header_does_not_match_the_cookie()
+    public async Task No_csrf_companion_cookie_is_issued()
     {
-        var client = HttpsClient();
+        // The double-submit pattern needs the client to READ the companion cookie. It is set on
+        // the API's domain, so a SPA on another domain never can — the check would be
+        // unsatisfiable. Presence of a custom header is used instead; there is no companion.
+        var client = HttpsClient(handleCookies: false);
 
         var register = await client.PostAsJsonAsync("/api/auth/register",
             new { email = ApiHelpers.UniqueEmail(), password = "Password1" });
         register.EnsureSuccessStatusCode();
 
-        using var request = new HttpRequestMessage(HttpMethod.Post, "/api/auth/refresh")
-        {
-            Content = JsonContent.Create(new { })
-        };
-        request.Headers.Add("X-Refresh-CSRF", "0000000000000000000000000000000000");
-
-        var refreshed = await client.SendAsync(request);
-
-        refreshed.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+        CookieAttribute(register, "todo_rt_csrf").Should().BeNull();
     }
 
     [Fact]
@@ -146,23 +140,6 @@ public class RefreshCookieTests : IClassFixture<CookieOnlyFactory>
         cleared!.Should().Contain("expires=", Exactly.Once(), "the cookie must be actively expired");
     }
 
-    private static string? ExtractCsrf(HttpResponseMessage response)
-    {
-        if (!response.Headers.TryGetValues("Set-Cookie", out var values))
-        {
-            return null;
-        }
-
-        var raw = values.FirstOrDefault(v => v.StartsWith("todo_rt_csrf=", StringComparison.Ordinal));
-        if (raw is null)
-        {
-            return null;
-        }
-
-        var value = raw["todo_rt_csrf=".Length..];
-        var end = value.IndexOf(';');
-        return end >= 0 ? value[..end] : value;
-    }
 }
 
 /// <summary>A host with cookie-only refresh delivery — the deployed default.</summary>

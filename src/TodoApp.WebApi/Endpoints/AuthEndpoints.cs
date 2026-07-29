@@ -1,4 +1,3 @@
-using System.Security.Cryptography;
 using MediatR;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.Extensions.Options;
@@ -29,8 +28,7 @@ public static class AuthEndpoints
         // available for the smoke test and any client mid-migration.
         static AuthResponse Deliver(HttpContext http, AuthResponse response, AuthOptions options)
         {
-            var csrf = Convert.ToHexString(RandomNumberGenerator.GetBytes(16));
-            RefreshTokenCookie.Write(http.Response, response.RefreshToken, response.RefreshTokenExpiresAt, csrf);
+            RefreshTokenCookie.Write(http.Response, response.RefreshToken, response.RefreshTokenExpiresAt);
 
             return options.RefreshTokenInBody
                 ? response

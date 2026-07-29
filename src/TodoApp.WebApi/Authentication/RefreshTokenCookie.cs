@@ -32,33 +32,31 @@ public static class RefreshTokenCookie
     public const string Name = "todo_rt";
 
     /// <summary>
-    /// Double-submit companion: a non-httpOnly cookie holding a random value that the client must
-    /// echo in a header. A cross-site attacker can cause the httpOnly cookie to be sent, but
-    /// cannot read this one to reproduce the header (that is what the same-origin policy blocks).
+    /// CSRF defence: the caller must send this header. Any non-empty value will do.
     /// </summary>
-    public const string CsrfCookieName = "todo_rt_csrf";
+    /// <remarks>
+    /// A custom request header cannot be attached by a cross-site form post or image tag — the
+    /// browser must first send a CORS preflight, and this API's policy only allows the SPA's
+    /// origin. So the header's *presence* is the proof, not its value.
+    ///
+    /// The first implementation used a double-submit cookie whose value had to be echoed here.
+    /// That is the textbook pattern and it is wrong for this deployment: the companion cookie is
+    /// set on the API's domain, so the SPA — on a different domain — can never read it via
+    /// document.cookie. The check was unsatisfiable, which would have silently broken silent
+    /// re-authentication for every user. Verified against the live site before it caused harm.
+    /// </remarks>
     public const string CsrfHeaderName = "X-Refresh-CSRF";
 
     /// <summary>Scope the cookie to the auth endpoints — nothing else needs to receive it.</summary>
     private const string Path = "/api/auth";
 
-    public static void Write(HttpResponse response, string refreshToken, DateTimeOffset expiresAt, string csrfValue)
+    public static void Write(HttpResponse response, string refreshToken, DateTimeOffset expiresAt)
     {
         response.Cookies.Append(Name, refreshToken, new CookieOptions
         {
             HttpOnly = true,                    // unreachable from JavaScript — the whole point
             Secure = true,                      // required with SameSite=None, and correct anyway
             SameSite = SameSiteMode.None,       // SPA and API are different sites (see remarks)
-            Expires = expiresAt,
-            Path = Path,
-            IsEssential = true
-        });
-
-        response.Cookies.Append(CsrfCookieName, csrfValue, new CookieOptions
-        {
-            HttpOnly = false,                   // the client must read it to echo it back
-            Secure = true,
-            SameSite = SameSiteMode.None,
             Expires = expiresAt,
             Path = Path,
             IsEssential = true
@@ -76,14 +74,6 @@ public static class RefreshTokenCookie
             Path = Path
         };
         response.Cookies.Append(Name, string.Empty, expired);
-        response.Cookies.Append(CsrfCookieName, string.Empty, new CookieOptions
-        {
-            HttpOnly = false,
-            Secure = true,
-            SameSite = SameSiteMode.None,
-            Expires = DateTimeOffset.UnixEpoch,
-            Path = Path
-        });
     }
 
     /// <summary>
@@ -98,40 +88,11 @@ public static class RefreshTokenCookie
                 : null;
 
     /// <summary>
-    /// Double-submit check: when the token came from the cookie, the caller must also echo the
-    /// CSRF cookie's value in a header. A body-supplied token needs no check — an attacker who
-    /// can set the body already has script execution on an allowed origin.
+    /// CSRF check for the cookie-borne case: the caller must have sent <see cref="CsrfHeaderName"/>.
+    /// A body-supplied token needs no check — whoever set the body already had script execution on
+    /// an allowed origin.
     /// </summary>
     public static bool CsrfSatisfied(HttpRequest request, string? fromBody)
-    {
-        if (!string.IsNullOrWhiteSpace(fromBody))
-        {
-            return true;
-        }
-
-        if (!request.Cookies.TryGetValue(CsrfCookieName, out var cookie) || string.IsNullOrWhiteSpace(cookie))
-        {
-            return false;
-        }
-
-        var header = request.Headers[CsrfHeaderName].ToString();
-        return !string.IsNullOrWhiteSpace(header)
-            && CryptographicEquals(header, cookie);
-    }
-
-    private static bool CryptographicEquals(string a, string b)
-    {
-        if (a.Length != b.Length)
-        {
-            return false;
-        }
-
-        var diff = 0;
-        for (var i = 0; i < a.Length; i++)
-        {
-            diff |= a[i] ^ b[i];
-        }
-
-        return diff == 0;
-    }
+        => !string.IsNullOrWhiteSpace(fromBody)
+           || !string.IsNullOrWhiteSpace(request.Headers[CsrfHeaderName].ToString());
 }
