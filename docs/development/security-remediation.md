@@ -91,10 +91,10 @@ App Service `httpsOnly` flag.
 `Api_responses_carry_a_locked_down_content_security_policy`,
 `Security_headers_are_present_on_error_responses_too`.
 
-**Not fixed — deliberately deferred:** moving the refresh token to an `httpOnly` cookie. That is a
-cross-cutting change to the auth contract (CSRF protection, cookie domain, the SWA/App Service
-cross-origin split) rather than a hardening tweak, and the headers above remove the practical
-exploit path. It remains the right long-term move.
+**Now fixed (2026-07-29).** The deferral is closed. The refresh token is delivered as an
+`httpOnly; Secure; SameSite=None` cookie scoped to `/api/auth`, so no script can read it — see the
+`frontend` branch's `SECURITY-REMEDIATION.md` for the client half and the caveat about browsers
+that block third-party cookies.
 
 ---
 
@@ -323,23 +323,28 @@ hook, not the policy.)*
 | **L12** | Removed the CI step that dumped the repo tree on every run. | `api-ci-cd.yml` |
 | **L13** | `GET /` returned a 302 to Swagger in production, where Swagger isn't mapped — a redirect into a 404. Now a static `{"status":"ok"}` outside Development, which also gives the keep-warm ping something real to hit. | `Program.cs` |
 
-### Low findings deliberately left open
+### Low findings — ALL NOW CLOSED (2026-07-29)
 
-- **L6** (Key Vault access policies rather than RBAC, no purge protection) — an Azure-side change
-  to a live vault, same category as M2/M3.
-- **L8** (PBKDF2 100k iterations, below OWASP's 600k) — raising it multiplies the cost of every
-  login on a Free-tier instance, and the H3 rate limiter now removes the brute-force pressure that
-  makes the iteration count urgent. The stored format already carries the iteration count, so a
-  rehash-on-login upgrade is available when the tier allows. **Argon2id would be the better move
-  than simply raising the count.**
-- **L9** (weak password policy, no breach-list check) — a HIBP k-anonymity lookup adds an outbound
-  dependency to the registration path; worth doing, but it's a feature decision.
-- **L10** (`AllowedHosts: "*"`) — the correct value is the deployment's hostname, which belongs in
-  App Service configuration, not in a committed default that would break local dev and CI.
-- **L11** (`TreatWarningsAsErrors`) — analyzers are now on repo-wide; turning warnings into errors
-  should follow once the existing warning surface is at zero, so it doesn't land as a wall of
-  unrelated failures.
+This section previously listed these as deliberately left open. Every one has since been fixed;
+the reasoning is kept because the trade-offs were real, not because the items are still pending.
 
+- **L6** — Key Vault: RBAC and soft-delete turned out to be already live (the finding was read off
+  `provision.sh`, same mistake as M2). Purge protection was genuinely missing and is now enabled.
+- **L8** — PBKDF2 raised to OWASP's 600,000. The concern was CPU cost on the Free tier; solved by
+  storing the count in the hash and upgrading each account in place on next login, so nobody is
+  locked out and nothing is re-hashed in bulk. Argon2id remains the better primitive but needs a
+  third-party package.
+- **L9** — breached-password rejection via the free HIBP k-anonymity API. The concern was an
+  outbound dependency on the registration path; solved by failing **open** on any error, so the
+  lookup being down never blocks a signup.
+- **L10** — `AllowedHosts` set to the real hostname as an App Service setting. The committed
+  default stays `"*"` because hard-coding one host breaks local dev, CI and every other
+  environment — the value belongs to the deployment, not the repository.
+- **L11** — `TreatWarningsAsErrors` on, after clearing the warning surface to zero first so it
+  landed as a guarantee rather than a wall of unrelated failures.
+
+All are covered by the posture check (`scripts/check-azure-posture.sh`, 16 assertions) or by unit
+tests. See the H2/L8/L9 entries above and the addendum for detail.
 ---
 
 ## Verification
