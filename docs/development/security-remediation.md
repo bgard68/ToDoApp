@@ -157,7 +157,12 @@ CRLF injection stripped, ESC/BEL/NUL stripped, ordinary and non-ASCII values unt
 Key Vault writes use `--file` with a mode-600 temp file removed via an `EXIT` trap. The PowerShell
 twin already used `SecureString`/`PSCredential`.
 
-**M2 and M3 are NOT fixed in code** — they are changes to a live Azure environment, not to the
+> **SUPERSEDED — see the M2/M3 addendum at the end of this document (2026-07-29).** Both are
+> now fixed in the live environment and in the provision scripts, and verifying the live
+> environment showed the M2 description below was wrong about production. The paragraph that
+> follows is kept as the original finding, not as current state.
+
+**M2 and M3 were NOT fixed in code at the time of the original review** — they are changes to a live Azure environment, not to the
 repository, and applying them blind would risk breaking the running deployment. Recorded here as
 accepted-and-open:
 
@@ -603,7 +608,7 @@ what these checks protect. (An attempt to grant it `Reader` on the SQL server fa
 
 ## Bugs found along the way
 
-### 11. `infra/Export-Azure.ps1` could never run *(pre-existing, unrelated to this work)*
+### 12. `infra/Export-Azure.ps1` could never run *(pre-existing, unrelated to this work)*
 
     Write-Host "`nContents of $OutputDir:"
 
@@ -612,7 +617,7 @@ what these checks protect. (An attempt to grant it `Reader` on the SQL server fa
 Fixed with `${OutputDir}:`. This is exactly why `scripts-lint.yml` now exists: nothing in the repo
 executed these files, so a fatal error sat in one indefinitely.
 
-### 12. Two wrong diagnoses of that same parse failure, before the right one
+### 13. Two wrong diagnoses of that same parse failure, before the right one
 
 Windows PowerShell 5.1's `ParseFile` reported **45 errors** in the *pristine* `Provision.ps1`.
 
@@ -630,7 +635,7 @@ My edits had been correct the whole time; the *validator* was broken. `scripts-l
 files explicitly as UTF-8 for this reason, with a comment saying why — otherwise the next person
 gets the same wall of misleading errors.
 
-### 13. `&& echo "success"` after a failed command
+### 14. `&& echo "success"` after a failed command
 
     az role assignment create ... -o none 2>&1 | tail -2 && echo "  Reader granted"
 
