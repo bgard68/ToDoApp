@@ -266,14 +266,21 @@ ok "Firewall set: $fw_n App Service outbound IP(s); no all-of-Azure rule"
 
 # ---- 5. Key Vault + secrets --------------------------------------------------
 log "Creating Key Vault '$KEYVAULT_NAME'"
+# RBAC rather than legacy access policies, plus soft-delete retention and PURGE PROTECTION
+# (review finding L6). Purge protection stops an attacker — or a mistake — permanently destroying
+# secrets inside the retention window. It is IRREVERSIBLE once enabled, which is the point.
+#
+# The live vault was already on RBAC; this script was the thing still creating the legacy shape.
 az keyvault create \
   --name "$KEYVAULT_NAME" \
   --resource-group "$RESOURCE_GROUP" \
   --location "$LOCATION" \
-  --enable-rbac-authorization false \
+  --enable-rbac-authorization true \
+  --enable-purge-protection true \
+  --retention-days 90 \
   --tags $TAGS \
   --output none
-ok "Key Vault ready"
+ok "Key Vault ready (RBAC, soft-delete 90d, purge protection on)"
 
 # Passwordless connection string: the App Service system-assigned managed identity authenticates
 # to SQL, so there is no credential in this value at all (review finding M2). It is therefore not
@@ -287,11 +294,16 @@ ok "No SQL secrets to store (passwordless via managed identity)"
 
 log "Granting identities access to Key Vault secrets"
 # App runtime (system-assigned) + the user-assigned/CI identity get read access.
-az keyvault set-policy --name "$KEYVAULT_NAME" --object-id "$WEBAPP_PRINCIPAL_ID" \
-  --secret-permissions get list --output none
-az keyvault set-policy --name "$KEYVAULT_NAME" --object-id "$UAMI_PRINCIPAL_ID" \
-  --secret-permissions get list --output none
-ok "Access policies set"
+#
+# Under RBAC, `az keyvault set-policy` silently does nothing — grant the built-in "Key Vault
+# Secrets User" role instead. It reads secret VALUES only: no write, no delete, no management.
+KV_ID="$(az keyvault show --name "$KEYVAULT_NAME" --resource-group "$RESOURCE_GROUP" --query id -o tsv)"
+for principal in "$WEBAPP_PRINCIPAL_ID" "$UAMI_PRINCIPAL_ID"; do
+  az role assignment create \
+    --assignee-object-id "$principal" --assignee-principal-type ServicePrincipal \
+    --role "Key Vault Secrets User" --scope "$KV_ID" --output none 2>/dev/null || true
+done
+ok "Key Vault RBAC role assignments set"
 
 # ---- 5b. Import captured secrets (e.g. Jwt--Key) into the new Key Vault ------
 if [[ -n "$IMPORT_SECRETS_FILE" ]]; then

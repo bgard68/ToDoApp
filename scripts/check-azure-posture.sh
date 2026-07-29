@@ -147,6 +147,61 @@ else
   ok "H1: demo seeding is off"
 fi
 
+# ---- L6: Key Vault hardening -------------------------------------------------
+KEYVAULT="${KEYVAULT:-taskboard-kv}"
+
+# One property per call. A multi-value --query returns one value PER LINE (not tab-separated),
+# and on Windows each carries a trailing CR — so `cut -f1` reads the whole block and the
+# comparison silently never matches. Single-value queries are clean on both platforms.
+kv_prop() {
+  az keyvault show -n "$KEYVAULT" -g "$RESOURCE_GROUP" --query "$1" -o tsv 2>/dev/null | tr -d '\r'
+}
+
+kv_rbac="$(kv_prop properties.enableRbacAuthorization)"
+kv_soft="$(kv_prop properties.enableSoftDelete)"
+kv_purge="$(kv_prop properties.enablePurgeProtection)"
+
+if [ -z "$kv_rbac" ] && [ -z "$kv_soft" ] && [ -z "$kv_purge" ]; then
+  bad "L6: could not read Key Vault '$KEYVAULT' (name? permissions?)"
+else
+  if [ "$kv_rbac" = "true" ]; then
+    ok "L6: Key Vault uses RBAC (not legacy access policies)"
+  else
+    bad "L6: Key Vault still uses access policies"
+  fi
+
+  if [ "$kv_soft" = "true" ]; then
+    ok "L6: Key Vault soft-delete is on"
+  else
+    bad "L6: Key Vault soft-delete is off"
+  fi
+
+  if [ "$kv_purge" = "true" ]; then
+    ok "L6: Key Vault purge protection is on"
+  else
+    bad "L6: Key Vault purge protection is off - secrets can be permanently destroyed"
+  fi
+fi
+
+# ---- L10: host header validation --------------------------------------------
+hosts="$(az webapp config appsettings list -n "$WEBAPP" -g "$RESOURCE_GROUP" \
+          --query "[?name=='AllowedHosts'].value" -o tsv 2>/dev/null)"
+if [ -n "$hosts" ] && [ "$hosts" != "*" ]; then
+  ok "L10: AllowedHosts is pinned to a hostname ($hosts)"
+else
+  bad "L10: AllowedHosts is unset or '*' - no host header validation"
+fi
+
+# ---- H2: the refresh token must stay out of the response body ----------------
+inBody="$(az webapp config appsettings list -n "$WEBAPP" -g "$RESOURCE_GROUP" \
+           --query "[?name=='Auth__RefreshTokenInBody'].value" -o tsv 2>/dev/null)"
+lowered="$(printf '%s' "$inBody" | tr 'A-Z' 'a-z')"
+if [ -z "$inBody" ] || [ "$lowered" = "false" ]; then
+  ok "H2: refresh token is cookie-only (not returned in the response body)"
+else
+  bad "H2: Auth__RefreshTokenInBody is enabled - the SPA can put the refresh token back in storage"
+fi
+
 echo "------------------------------------------------------------"
 printf '  %d passed, %d failed\n\n' "$pass" "$fail"
 [ "$fail" -eq 0 ] || exit 1
