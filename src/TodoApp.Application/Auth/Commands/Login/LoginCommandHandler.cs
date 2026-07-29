@@ -67,6 +67,15 @@ public class LoginCommandHandler : IRequestHandler<LoginCommand, AuthResponse>
             throw new UnauthorizedException("This account has been disabled.");
         }
 
+        // Transparent upgrade: the password is already verified, so re-hash it at the current
+        // work factor if the stored hash predates a policy change (review finding L8). Accounts
+        // migrate as people sign in — no bulk migration, no forced reset.
+        if (_hasher.NeedsRehash(user.PasswordHash!))
+        {
+            user.UpgradePasswordHash(_hasher.Hash(request.Password), _dateTime.UtcNow);
+            await _users.UpdateAsync(user, cancellationToken);
+        }
+
         return await TokenResponseFactory.IssueAsync(user, _jwt, _refreshTokens, _dateTime.UtcNow, cancellationToken);
     }
 }

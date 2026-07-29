@@ -46,6 +46,22 @@ public static class DependencyInjection
         services.Configure<GoogleAuthSettings>(configuration.GetSection(GoogleAuthSettings.SectionName));
         services.AddSingleton<IGoogleTokenValidator, GoogleTokenValidator>();
 
+        // Breached-password rejection (review finding L9). Uses the free Have I Been Pwned
+        // k-anonymity range API — no API key, so it costs nothing on the Free tier. The password
+        // itself is never sent; only the first five characters of its SHA-1 hash.
+        services.Configure<PasswordBreachCheckOptions>(
+            configuration.GetSection(PasswordBreachCheckOptions.SectionName));
+        services.AddHttpClient(HibpBreachedPasswordChecker.HttpClientName, client =>
+        {
+            client.BaseAddress = new Uri("https://api.pwnedpasswords.com/");
+            client.Timeout = TimeSpan.FromSeconds(10);
+            // HIBP asks callers to identify themselves.
+            client.DefaultRequestHeaders.UserAgent.ParseAdd("TodoApp-SecurityCheck/1.0");
+            // Pads responses with fake hashes so response size can't hint at the prefix's contents.
+            client.DefaultRequestHeaders.Add("Add-Padding", "true");
+        });
+        services.AddScoped<IBreachedPasswordChecker, HibpBreachedPasswordChecker>();
+
         return services;
     }
 }

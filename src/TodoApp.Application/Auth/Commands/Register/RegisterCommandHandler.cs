@@ -1,3 +1,4 @@
+using FluentValidation.Results;
 using MediatR;
 using TodoApp.Application.Auth.Common;
 using TodoApp.Application.Auth.Dtos;
@@ -16,6 +17,7 @@ public class RegisterCommandHandler : IRequestHandler<RegisterCommand, AuthRespo
     private readonly IPasswordHasher _hasher;
     private readonly IJwtTokenService _jwt;
     private readonly IDateTimeProvider _dateTime;
+    private readonly IBreachedPasswordChecker _breachChecker;
 
     public RegisterCommandHandler(
         IUserRepository users,
@@ -24,7 +26,8 @@ public class RegisterCommandHandler : IRequestHandler<RegisterCommand, AuthRespo
         IUnitOfWork unitOfWork,
         IPasswordHasher hasher,
         IJwtTokenService jwt,
-        IDateTimeProvider dateTime)
+        IDateTimeProvider dateTime,
+        IBreachedPasswordChecker breachChecker)
     {
         _users = users;
         _categories = categories;
@@ -33,11 +36,25 @@ public class RegisterCommandHandler : IRequestHandler<RegisterCommand, AuthRespo
         _hasher = hasher;
         _jwt = jwt;
         _dateTime = dateTime;
+        _breachChecker = breachChecker;
     }
 
     public async Task<AuthResponse> Handle(RegisterCommand request, CancellationToken cancellationToken)
     {
         var email = User.NormalizeEmail(request.Email);
+
+        // Reject passwords known to appear in breach corpora (review finding L9). Composition
+        // rules alone stop nothing that matters — "Password1" passes every one of them. The
+        // checker fails open, so an outage at the lookup service never blocks registration.
+        if (await _breachChecker.IsBreachedAsync(request.Password, cancellationToken))
+        {
+            throw new ValidationException(
+            [
+                new ValidationFailure(
+                    nameof(RegisterCommand.Password),
+                    "This password has appeared in a known data breach. Please choose a different one.")
+            ]);
+        }
 
         if (await _users.EmailExistsAsync(email, cancellationToken))
         {
