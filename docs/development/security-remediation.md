@@ -237,9 +237,8 @@ branch — so the React/Vite tree on `frontend` was monitored by nothing at all.
 > GitHub rejects an advanced-setup workflow while default setup is active. This is called out at
 > the top of `codeql.yml`.
 
-**Still open:** container image scanning (Trivy/Grype) is not wired up — there is no image
-registry in this deployment (App Service takes a zip), so it would scan an artefact nothing runs.
-Worth adding if the Docker path ever becomes the deployment path.
+**Now closed.** `.github/workflows/container-build.yml` builds the image and scans it with Trivy,
+uploading SARIF to the Security tab, and asserts it does not run as root.
 
 ---
 
@@ -294,9 +293,8 @@ been:
 Trivy reports rather than blocks: base-image CVEs appear and are fixed on Microsoft's schedule,
 not ours, so failing the build would just train everyone to ignore a red X.
 
-**Still open:** base images are pinned by tag (`mcr.microsoft.com/dotnet/aspnet:10.0`), not by
-digest. Digest pinning needs a registry round-trip to resolve and a process to refresh them;
-worth doing, not done here.
+**Now closed.** Base images are pinned by digest, not tag — a tag is mutable, so the same
+Dockerfile could otherwise produce a different image tomorrow.
 
 ---
 
