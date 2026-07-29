@@ -81,17 +81,32 @@ jobs:
       - name: Serve a request and assert the security headers
         run: |
           set -euo pipefail
-          docker run -d --name web -p 8080:8080 todoapp-web:ci
+
+          # --add-host api: nginx resolves proxy_pass upstreams at config-parse time, so the
+          # `proxy_pass http://api:8080` block makes it refuse to start unless that name exists.
+          # In normal use docker compose provides it; standalone we point it at loopback. Only
+          # `/` is exercised here (static files), so nothing is actually proxied.
+          docker run -d --name web --add-host api:127.0.0.1 -p 8080:8080 todoapp-web:ci
+
+          ready=0
           for i in $(seq 1 30); do
-            if curl -fsS -o /dev/null http://127.0.0.1:8080/; then break; fi
+            if curl -fsS -o /dev/null http://127.0.0.1:8080/; then ready=1; break; fi
             sleep 1
           done
+          if [ "$ready" -ne 1 ]; then
+            echo "::error title=Container did not serve::nginx never answered on :8080."
+            docker logs web || true
+            docker rm -f web || true
+            exit 1
+          fi
+
           headers=$(curl -sSI http://127.0.0.1:8080/)
           echo "$headers"
           for h in "content-security-policy" "x-content-type-options" "x-frame-options" "referrer-policy" "permissions-policy"; do
             if ! printf '%s' "$headers" | tr 'A-Z' 'a-z' | grep -q "^$h:"; then
               echo "::error title=Missing header::$h was not present on a real response (review finding H2)."
               docker logs web || true
+              docker rm -f web || true
               exit 1
             fi
           done
