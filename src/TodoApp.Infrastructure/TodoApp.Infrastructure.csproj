@@ -24,7 +24,7 @@
          Overrides the vulnerable transitive SQLitePCLRaw.lib.e_sqlite3 2.1.11; the managed
          core stays at 2.1.11 (compatible with EF Core 10). Remove once Microsoft.Data.Sqlite
          ships a fixed dependency. -->
-    <PackageReference Include="SQLitePCLRaw.lib.e_sqlite3" Version="3.50.3" />
+    <PackageReference Include="SQLitePCLRaw.lib.e_sqlite3" Version="3.53.3" />
   </ItemGroup>
 
   <ItemGroup>
