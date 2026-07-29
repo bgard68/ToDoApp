@@ -14,12 +14,16 @@ on:
     paths:
       - '**/*.sh'
       - '**/*.ps1'
+      - '**/*.md'
+      - 'src/**'
       - '.github/workflows/scripts-lint.yml'
   pull_request:
     branches: [ main, dapper ]
     paths:
       - '**/*.sh'
       - '**/*.ps1'
+      - '**/*.md'
+      - 'src/**'
       - '.github/workflows/scripts-lint.yml'
   workflow_dispatch:
 
@@ -83,6 +87,12 @@ jobs:
             }
           }
           if ($failed) { exit 1 }
+
+      # Documentation drift was the most recurring defect in this remediation - four rounds of
+      # it. The check fails on facts (a cited file that does not exist, a claim the repo
+      # disproves), not on wording, so it cannot be satisfied by rephrasing.
+      - name: Security docs must match the repository
+        run: bash scripts/check-docs-drift.sh
 
       # The posture checkers must stay in step with each other; a drifted pair is worse than one.
       - name: Posture checkers exist in both flavours
