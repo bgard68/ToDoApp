@@ -48,10 +48,15 @@ describe('refresh token storage', () => {
     expect(code(apiClient)).toMatch(/credentials:\s*'include'/);
   });
 
-  it('echoes the double-submit CSRF value on refresh', () => {
+  it('sends the custom CSRF header on refresh', () => {
     expect(code(apiClient)).toMatch(/X-Refresh-CSRF/);
-    // Read from a cookie the page can see — that readability is what proves same-origin.
-    expect(code(apiClient)).toMatch(/todo_rt_csrf/);
+  });
+
+  it('does not try to read a cookie set by the API host', () => {
+    // document.cookie only ever exposes cookies for the PAGE's host. The SPA and API are on
+    // different domains, so any attempt to read an API-set cookie silently yields null and
+    // breaks refresh for everyone — which is exactly the bug this replaced.
+    expect(code(apiClient)).not.toMatch(/document\.cookie/);
   });
 
   it('does not send the refresh token in a request body', () => {

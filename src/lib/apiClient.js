@@ -10,10 +10,13 @@
 // every call lets the browser decide, and a failed refresh simply means "not signed in".
 const BASE = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '');
 
-// Companion double-submit cookie for the refresh endpoint. This one is deliberately readable —
-// echoing it in a header is what proves the request came from our own page rather than a
-// cross-site form post. It is not a secret; it is a same-origin-policy proof.
-const CSRF_COOKIE = 'todo_rt_csrf';
+// CSRF proof for the refresh endpoint. A cross-site form post or image tag cannot set a custom
+// header — the browser must first pass a CORS preflight the API only grants to this origin — so
+// sending the header at all is the proof. Its value is irrelevant.
+//
+// An earlier version used a double-submit cookie whose value had to be echoed here. That cannot
+// work across domains: the cookie is set by the API's host, and document.cookie only ever exposes
+// cookies for the page's own host. Every refresh would have 401'd.
 const CSRF_HEADER = 'X-Refresh-CSRF';
 
 let accessToken = null;
@@ -33,14 +36,12 @@ export function clearSession() {
   // The refresh cookie is cleared server-side by /api/auth/logout.
 }
 
-function readCsrf() {
-  const match = document.cookie.match(new RegExp('(?:^|; )' + CSRF_COOKIE + '=([^;]*)'));
-  return match ? decodeURIComponent(match[1]) : null;
-}
-
-/** True when a refresh cookie plausibly exists, so a silent sign-in is worth attempting. */
+/**
+ * Whether a silent sign-in is worth attempting. The refresh cookie is httpOnly and cross-site, so
+ * there is nothing readable to test — just try the refresh and treat 401 as "not signed in".
+ */
 export function hasSession() {
-  return readCsrf() !== null;
+  return true;
 }
 
 async function parse(res) {
@@ -128,12 +129,10 @@ function refreshSession() {
 }
 
 async function performRefresh() {
-  const csrf = readCsrf();
-  if (!csrf) return false;   // no cookie -> not signed in; don't bother the server
-
   const res = await wakeFetch(`${BASE}/api/auth/refresh`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', [CSRF_HEADER]: csrf },
+    // The header's presence is the CSRF proof; '1' is as good as any value.
+    headers: { 'Content-Type': 'application/json', [CSRF_HEADER]: '1' },
     credentials: 'include',   // the httpOnly cookie carries the actual token
     body: '{}',
   });
