@@ -196,7 +196,10 @@ if (-not $NoInventory) {
 }
 
 Write-Step "Export complete"
-Write-Host "`nContents of $OutputDir:"
+# ${OutputDir} must be brace-delimited: a bare "$OutputDir:" is parsed as a drive-qualified
+# variable reference (like $env:PATH), which is a hard parse error — the whole script failed to
+# load. Found while validating the infra scripts during the M2/M3 remediation.
+Write-Host "`nContents of ${OutputDir}:"
 Get-ChildItem $OutputDir | Select-Object Name, Length | Format-Table -AutoSize
 
 @"

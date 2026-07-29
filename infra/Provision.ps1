@@ -58,8 +58,12 @@ param(
     [double] $SqlMinVCores   = 0.5,
     [int]    $SqlAutoPauseMin = 60,
     [bool]   $SqlUseFreeLimit = $true,
-    [string] $SqlAdminUser   = 'sqladmin',
-    [string] $SqlAdminPassword,
+    # Azure SQL is created with ENTRA-ONLY authentication: no SQL login, no password, nothing
+    # to store or rotate (review findings M2/M4). Defaults to the signed-in user.
+    [string] $EntraAdminName,
+    [string] $EntraAdminSid,
+    [ValidateSet('User','Group','Application')]
+    [string] $EntraAdminType = 'User',
 
     # User-assigned managed identity (OIDC / CI-CD)
     [string] $UamiName       = "$Project-oidc-msi",
@@ -104,7 +108,8 @@ Planned deployment
   SQL server         : $SqlServerName
   SQL database       : $SqlDbName             (GP serverless Gen5, free-limit=$SqlUseFreeLimit)
                        vCores $SqlMinVCores-$SqlMaxVCores, auto-pause ${SqlAutoPauseMin}m
-  SQL admin user     : $SqlAdminUser
+  SQL Entra admin    : $EntraAdminName ($EntraAdminType)
+  SQL auth mode      : Entra-only (no SQL password)
   User-assigned MI   : $UamiName              (OIDC / CI-CD)
   Key Vault          : $KeyVaultName
   Storage + static   : $storageState
@@ -120,15 +125,16 @@ $ctx = Get-AzContext
 if (-not $ctx) { throw "Not logged in. Run 'Connect-AzAccount'." }
 Write-Step "Using subscription: $($ctx.Subscription.Id)"
 
-$generatedPw = $false
-if ([string]::IsNullOrEmpty($SqlAdminPassword)) {
-    $bytes = New-Object 'byte[]' 18
-    [System.Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($bytes)
-    $SqlAdminPassword = [Convert]::ToBase64String($bytes) + 'Aa1!'
-    $generatedPw = $true
+# Resolve the Entra administrator for the SQL server. Without one, an Entra-only server has
+# nobody who can administer it, so this fails fast rather than creating an orphan.
+if (-not $EntraAdminName -or -not $EntraAdminSid) {
+    $me = az ad signed-in-user show -o json 2>$null | ConvertFrom-Json
+    if (-not $EntraAdminName) { $EntraAdminName = $me.userPrincipalName }
+    if (-not $EntraAdminSid)  { $EntraAdminSid  = $me.id }
 }
-$securePw = ConvertTo-SecureString $SqlAdminPassword -AsPlainText -Force
-$sqlCred  = New-Object System.Management.Automation.PSCredential ($SqlAdminUser, $securePw)
+if (-not $EntraAdminName -or -not $EntraAdminSid) {
+    throw "Could not resolve an Entra administrator. Pass -EntraAdminName and -EntraAdminSid, or run 'az login' as a user."
+}
 
 # ---- 1. Resource group ------------------------------------------------------
 Write-Step "Creating resource group '$ResourceGroup'"
@@ -177,8 +183,14 @@ Write-Ok "Web app ready (system identity: $principalId)"
 # ---- 4. Azure SQL server + serverless database (free limit) -----------------
 Write-Step "Creating Azure SQL server '$SqlServerName'"
 if (-not (Get-AzSqlServer -ResourceGroupName $ResourceGroup -ServerName $SqlServerName -ErrorAction SilentlyContinue)) {
-    New-AzSqlServer -ResourceGroupName $ResourceGroup -ServerName $SqlServerName `
-        -Location $Location -SqlAdministratorCredentials $sqlCred | Out-Null
+    # Entra-only: no SQL administrator credential is created at all (review findings M2/M4).
+    # Az PowerShell has no cmdlet for external-admin creation, so the CLI is used here.
+    az sql server create --name $SqlServerName --resource-group $ResourceGroup `
+        --location $Location --enable-ad-only-auth `
+        --external-admin-principal-type $EntraAdminType `
+        --external-admin-name $EntraAdminName --external-admin-sid $EntraAdminSid `
+        --minimal-tls-version 1.2 --output none
+    if ($LASTEXITCODE -ne 0) { throw "az sql server create failed (exit $LASTEXITCODE)." }
 }
 Write-Ok "SQL server ready"
 
@@ -206,9 +218,20 @@ if (-not (Get-AzSqlDatabase -ResourceGroupName $ResourceGroup -ServerName $SqlSe
 Write-Ok "SQL database ready (serverless, min $SqlMinVCores / max $SqlMaxVCores vCores)"
 
 Write-Step "Configuring SQL firewall (allow Azure services)"
-if (-not (Get-AzSqlServerFirewallRule -ResourceGroupName $ResourceGroup -ServerName $SqlServerName -FirewallRuleName 'AllowAzureServices' -ErrorAction SilentlyContinue)) {
-    New-AzSqlServerFirewallRule -ResourceGroupName $ResourceGroup -ServerName $SqlServerName `
-        -FirewallRuleName 'AllowAzureServices' -StartIpAddress '0.0.0.0' -EndIpAddress '0.0.0.0' | Out-Null
+# Allow ONLY this App Service's outbound addresses. A 0.0.0.0-0.0.0.0 rule is Azure's
+# "allow all Azure services" case, which admits resources from ANY tenant (review finding M3).
+# A Private Endpoint would be stronger but needs VNet integration, which the F1 (Free) plan this
+# stack targets does not support. Use PossibleOutboundIpAddresses, not the current set: the app
+# can move within its scale unit and would otherwise start failing intermittently.
+$outbound = (Get-AzWebApp -ResourceGroupName $ResourceGroup -Name $WebAppName).PossibleOutboundIpAddresses -split ','
+$fwCount = 0
+foreach ($ip in $outbound) {
+    $fwCount++
+    $ruleName = 'AppServiceOutbound-{0:D2}' -f $fwCount
+    if (-not (Get-AzSqlServerFirewallRule -ResourceGroupName $ResourceGroup -ServerName $SqlServerName -FirewallRuleName $ruleName -ErrorAction SilentlyContinue)) {
+        New-AzSqlServerFirewallRule -ResourceGroupName $ResourceGroup -ServerName $SqlServerName `
+            -FirewallRuleName $ruleName -StartIpAddress $ip.Trim() -EndIpAddress $ip.Trim() | Out-Null
+    }
 }
 Write-Ok "Firewall rule set"
 
@@ -219,11 +242,13 @@ if (-not (Get-AzKeyVault -VaultName $KeyVaultName -ErrorAction SilentlyContinue)
 }
 Write-Ok "Key Vault ready"
 
-$sqlConnString = "Server=tcp:$SqlServerName.database.windows.net,1433;Initial Catalog=$SqlDbName;Persist Security Info=False;User ID=$SqlAdminUser;Password=$SqlAdminPassword;MultipleActiveResultSets=False;Encrypt=True;TrustServerCertificate=False;Connection Timeout=30;"
+# Passwordless: the App Service system-assigned managed identity authenticates to SQL, so this
+# value contains no credential and is not a secret (review finding M2).
+$sqlConnString = "Server=tcp:$SqlServerName.database.windows.net,1433;Database=$SqlDbName;Authentication=Active Directory Default;Encrypt=True;TrustServerCertificate=False;Connect Timeout=60;"
 
 Write-Step "Storing secrets in Key Vault"
-Set-AzKeyVaultSecret -VaultName $KeyVaultName -Name 'SqlConnectionString' -SecretValue (ConvertTo-SecureString $sqlConnString -AsPlainText -Force) | Out-Null
-Set-AzKeyVaultSecret -VaultName $KeyVaultName -Name 'SqlAdminPassword'    -SecretValue $securePw | Out-Null
+# Nothing to store: with Entra-only auth there is no SQL password, and the connection string
+# carries no credential. Jwt--Key remains the one real secret, managed outside this script.
 Write-Ok "Secrets stored"
 
 Write-Step "Granting identities access to Key Vault secrets"
@@ -319,7 +344,8 @@ place-items:center;min-height:100vh;background:#0b1220;color:#e6edf3}
 # ---- 7. Wire app settings (Key Vault references + imported settings) --------
 Write-Step "Configuring web app settings"
 $appSettings = @{
-    'SqlConnectionString' = "@Microsoft.KeyVault(VaultName=$KeyVaultName;SecretName=SqlConnectionString)"
+    'ConnectionStrings__DefaultConnection' = $sqlConnString
+    'Database__Provider'                  = 'SqlServer'
 }
 if ($EnableStorage) {
     $appSettings['StorageConnectionString'] = "@Microsoft.KeyVault(VaultName=$KeyVaultName;SecretName=StorageConnectionString)"
@@ -337,7 +363,9 @@ if ($ImportSettingsFile) {
             if ($line -match '^\s*#' -or $line -notmatch '=') { continue }
             $idx = $line.IndexOf('='); $k = $line.Substring(0, $idx).Trim(); $v = $line.Substring($idx + 1)
             if (-not $k) { continue }
-            if ($k -eq 'SqlConnectionString') { continue }   # keep our freshly-built one
+            # A captured environment may still carry the old password-bearing form; importing
+            # it would silently undo M2.
+            if ($k -in @('ConnectionStrings__DefaultConnection','SqlConnectionString')) { continue }
             if ($v -like '@kv:*') {
                 $v = "@Microsoft.KeyVault(VaultName=$KeyVaultName;SecretName=$($v.Substring(4)))"
             }
@@ -373,10 +401,17 @@ Resources created in resource group: $ResourceGroup
 "@ | Write-Host
 if ($EnableStorage) { Write-Host "  Static website URL : $staticWebUrl" }
 
-if ($generatedPw) {
-    Write-Host "`nNOTE: SQL admin password generated & stored in Key Vault. Retrieve with:"
-    Write-Host "  (Get-AzKeyVaultSecret -VaultName $KeyVaultName -Name SqlAdminPassword -AsPlainText)"
-}
+Write-Host ""
+Write-Host "NEXT STEP - grant the app identity access INSIDE the database."
+Write-Host "Connect to '$SqlDbName' as the Entra admin ($EntraAdminName) and run:"
+Write-Host ""
+Write-Host "    CREATE USER [$WebAppName] FROM EXTERNAL PROVIDER;"
+Write-Host "    ALTER ROLE db_datareader ADD MEMBER [$WebAppName];"
+Write-Host "    ALTER ROLE db_datawriter ADD MEMBER [$WebAppName];"
+Write-Host ""
+Write-Host "Reader + writer is all the app needs at runtime; both branches' initialisers are"
+Write-Host "guarded and do not execute DDL against an existing schema (review finding M2)."
+Write-Host "Verify the posture afterwards with:  ./scripts/check-azure-posture.sh"
 if ($ImportSettingsFile -or $ImportSecretsFile) {
     @"
 
