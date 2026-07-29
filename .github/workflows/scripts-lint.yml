@@ -1,0 +1,93 @@
+name: Script syntax
+
+# The infra and helper scripts are not covered by any build or test — they are only exercised when
+# someone runs them, typically during an incident or a rebuild, which is the worst moment to
+# discover they do not parse.
+#
+# This caught a real one: infra/Export-Azure.ps1 contained "$OutputDir:" in a string, which
+# PowerShell parses as a drive-qualified variable reference. The whole script failed to load, and
+# had done for as long as that line existed. See docs/development/security-remediation.md.
+
+on:
+  push:
+    branches: [ main, dapper ]
+    paths:
+      - '**/*.sh'
+      - '**/*.ps1'
+      - '.github/workflows/scripts-lint.yml'
+  pull_request:
+    branches: [ main, dapper ]
+    paths:
+      - '**/*.sh'
+      - '**/*.ps1'
+      - '.github/workflows/scripts-lint.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: scripts-lint-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: Parse shell and PowerShell scripts
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Bash scripts must parse
+        run: |
+          set -euo pipefail
+          rc=0
+          while IFS= read -r -d '' f; do
+            if bash -n "$f" 2>/tmp/err; then
+              echo "  OK    $f"
+            else
+              echo "::error file=$f::bash syntax error"; sed 's/^/        /' /tmp/err; rc=1
+            fi
+          done < <(find . -name '*.sh' -not -path './node_modules/*' -print0)
+          exit $rc
+
+      - name: Bash scripts must pass shellcheck
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq && sudo apt-get install -y -qq shellcheck
+          # SC2086 (unquoted expansion) is used deliberately for the $TAGS word-splitting in
+          # provision.sh; everything else is treated as an error.
+          find . -name '*.sh' -not -path './node_modules/*' -print0 \
+            | xargs -0 shellcheck --severity=error --exclude=SC2086
+
+      - name: PowerShell scripts must parse
+        shell: pwsh
+        run: |
+          $failed = $false
+          Get-ChildItem -Recurse -Filter *.ps1 | ForEach-Object {
+            # Read explicitly as UTF-8. These files have no BOM, and a parser that guesses the
+            # encoding mangles the non-ASCII characters in their comments — which produces a wall
+            # of misleading syntax errors that point nowhere near the real problem.
+            $text = [System.IO.File]::ReadAllText($_.FullName, [System.Text.Encoding]::UTF8)
+            $errs = $null
+            $null = [System.Management.Automation.Language.Parser]::ParseInput($text, [ref]$null, [ref]$errs)
+            if ($errs.Count) {
+              Write-Host "::error file=$($_.FullName)::$($errs[0].Message) (line $($errs[0].Extent.StartLineNumber))"
+              $failed = $true
+            } else {
+              Write-Host "  OK    $($_.FullName)"
+            }
+          }
+          if ($failed) { exit 1 }
+
+      # The posture checkers must stay in step with each other; a drifted pair is worse than one.
+      - name: Posture checkers exist in both flavours
+        run: |
+          set -euo pipefail
+          test -f scripts/check-azure-posture.sh || { echo "::error::missing scripts/check-azure-posture.sh"; exit 1; }
+          test -f scripts/Check-AzurePosture.ps1 || { echo "::error::missing scripts/Check-AzurePosture.ps1"; exit 1; }
+          echo "  OK    both posture checkers present"

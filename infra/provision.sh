@@ -54,8 +54,12 @@ SQL_MAX_VCORES="${SQL_MAX_VCORES:-2}"          # serverless auto-scale ceiling
 SQL_MIN_VCORES="${SQL_MIN_VCORES:-0.5}"        # serverless auto-scale floor
 SQL_AUTO_PAUSE_MIN="${SQL_AUTO_PAUSE_MIN:-60}" # minutes idle before auto-pause
 SQL_USE_FREE_LIMIT="${SQL_USE_FREE_LIMIT:-true}"  # Azure SQL free offer (1 per subscription)
-SQL_ADMIN_USER="${SQL_ADMIN_USER:-sqladmin}"
-SQL_ADMIN_PASSWORD="${SQL_ADMIN_PASSWORD:-}"   # if empty, generated & stored in Key Vault
+# Azure SQL is created with ENTRA-ONLY authentication — no SQL login, no password, nothing to
+# leak or rotate (review findings M2/M4). Defaults to the signed-in user as the server's Entra
+# administrator; override to hand it to a group instead.
+ENTRA_ADMIN_NAME="${ENTRA_ADMIN_NAME:-$(az ad signed-in-user show --query userPrincipalName -o tsv 2>/dev/null)}"
+ENTRA_ADMIN_SID="${ENTRA_ADMIN_SID:-$(az ad signed-in-user show --query id -o tsv 2>/dev/null)}"
+ENTRA_ADMIN_TYPE="${ENTRA_ADMIN_TYPE:-User}"   # User | Group | Application
 
 # User-assigned managed identity (the live env has oidc-msi-* identities for CI/CD)
 UAMI_NAME="${UAMI_NAME:-${PROJECT}-oidc-msi}"
@@ -96,7 +100,8 @@ Planned deployment
   SQL server         : $SQL_SERVER_NAME
   SQL database       : $SQL_DB_NAME           (GP serverless Gen5, free-limit=$SQL_USE_FREE_LIMIT)
                        vCores ${SQL_MIN_VCORES}-${SQL_MAX_VCORES}, auto-pause ${SQL_AUTO_PAUSE_MIN}m
-  SQL admin user     : $SQL_ADMIN_USER
+  SQL Entra admin    : ${ENTRA_ADMIN_NAME:-<none found>} ($ENTRA_ADMIN_TYPE)
+  SQL auth mode      : Entra-only (no SQL password)
   User-assigned MI   : $UAMI_NAME             (OIDC / CI-CD)
   Key Vault          : $KEYVAULT_NAME
   Storage + static   : $( [[ "$ENABLE_STORAGE" == "true" ]] && echo "ENABLED ($STORAGE_ACCOUNT)" || echo "disabled (set ENABLE_STORAGE=true)" )
@@ -127,11 +132,11 @@ SUBSCRIPTION_ID="$(az account show --query id -o tsv)"
 print_plan
 log "Using subscription: $SUBSCRIPTION_ID"
 
-if [[ -z "$SQL_ADMIN_PASSWORD" ]]; then
-  SQL_ADMIN_PASSWORD="$(openssl rand -base64 18)Aa1!"
-  GENERATED_PW=1
-else
-  GENERATED_PW=0
+if [[ -z "$ENTRA_ADMIN_NAME" || -z "$ENTRA_ADMIN_SID" ]]; then
+  echo "ERROR: could not resolve an Entra administrator for the SQL server." >&2
+  echo "       Set ENTRA_ADMIN_NAME and ENTRA_ADMIN_SID, or run 'az login' as a user." >&2
+  echo "       An Entra-only server with no Entra admin has nobody who can administer it." >&2
+  exit 1
 fi
 
 # ---- 1. Resource group -------------------------------------------------------
@@ -194,18 +199,24 @@ ok "Web app ready (system identity: $WEBAPP_PRINCIPAL_ID)"
 
 # ---- 4. Azure SQL server + serverless database (free limit) -----------------
 log "Creating Azure SQL server '$SQL_SERVER_NAME'"
-# The password is passed on stdin, not as an argv element. Command-line arguments are readable by
-# any local user via /proc/<pid>/cmdline for the lifetime of the process, and land in shell
-# history and az CLI debug logs (review finding M4). The PowerShell twin already used a
-# SecureString/PSCredential; this brings the bash path in line.
+# No --admin-user / --admin-password at all. The server is created with an Entra administrator and
+# SQL authentication disabled outright, which removes the whole class of problems around a
+# password-based server admin: storing it, rotating it, keeping it out of argv and CLI logs
+# (review findings M2 and M4). Minimum TLS is pinned while we are here.
+#
+# This is what the live environment already looked like — the script was the thing still creating
+# the insecure shape. See docs/development/security-remediation.md (M2).
 az sql server create \
   --name "$SQL_SERVER_NAME" \
   --resource-group "$RESOURCE_GROUP" \
   --location "$LOCATION" \
-  --admin-user "$SQL_ADMIN_USER" \
-  --admin-password @- \
-  --output none <<< "$SQL_ADMIN_PASSWORD"
-ok "SQL server ready"
+  --enable-ad-only-auth \
+  --external-admin-principal-type "$ENTRA_ADMIN_TYPE" \
+  --external-admin-name "$ENTRA_ADMIN_NAME" \
+  --external-admin-sid "$ENTRA_ADMIN_SID" \
+  --minimal-tls-version 1.2 \
+  --output none
+ok "SQL server ready (Entra-only auth, admin: $ENTRA_ADMIN_NAME)"
 
 log "Creating serverless SQL database '$SQL_DB_NAME'"
 FREE_LIMIT_ARGS=()
@@ -228,12 +239,30 @@ az sql db create \
   --output none
 ok "SQL database ready (serverless, min ${SQL_MIN_VCORES} / max ${SQL_MAX_VCORES} vCores)"
 
-log "Configuring SQL firewall (allow Azure services)"
-az sql server firewall-rule create \
-  --resource-group "$RESOURCE_GROUP" --server "$SQL_SERVER_NAME" \
-  --name AllowAzureServices --start-ip-address 0.0.0.0 --end-ip-address 0.0.0.0 \
-  --output none
-ok "Firewall rule set"
+# SQL firewall: allow ONLY this App Service's outbound addresses.
+#
+# The obvious rule is 0.0.0.0-0.0.0.0 — Azure's "allow all Azure services" special case, and what
+# this script used to create. That admits resources from ANY Azure tenant, not just this
+# subscription, leaving the credential as the only thing protecting the database (review finding
+# M3). A Private Endpoint would be stronger, but it needs VNet integration, which requires a Basic
+# or higher App Service plan; on the F1 (Free) tier this stack targets, allow-listing the outbound
+# IPs is the correct answer.
+#
+# Note possibleOutboundIpAddresses, not outboundIpAddresses: the former is the full set the app may
+# use within its scale unit. Allow-listing only the current ones produces intermittent failures
+# later, when the app moves and its source IP changes.
+log "Configuring SQL firewall (App Service outbound IPs only)"
+fw_n=0
+for ip in $(az webapp show -n "$WEBAPP_NAME" -g "$RESOURCE_GROUP" \
+              --query possibleOutboundIpAddresses -o tsv | tr ',' ' '); do
+  fw_n=$((fw_n + 1))
+  az sql server firewall-rule create \
+    --resource-group "$RESOURCE_GROUP" --server "$SQL_SERVER_NAME" \
+    --name "AppServiceOutbound-$(printf '%02d' "$fw_n")" \
+    --start-ip-address "$ip" --end-ip-address "$ip" \
+    --output none
+done
+ok "Firewall set: $fw_n App Service outbound IP(s); no all-of-Azure rule"
 
 # ---- 5. Key Vault + secrets --------------------------------------------------
 log "Creating Key Vault '$KEYVAULT_NAME'"
@@ -246,23 +275,15 @@ az keyvault create \
   --output none
 ok "Key Vault ready"
 
-SQL_CONNECTION_STRING="Server=tcp:${SQL_SERVER_NAME}.database.windows.net,1433;Initial Catalog=${SQL_DB_NAME};Persist Security Info=False;User ID=${SQL_ADMIN_USER};Password=${SQL_ADMIN_PASSWORD};MultipleActiveResultSets=False;Encrypt=True;TrustServerCertificate=False;Connection Timeout=30;"
+# Passwordless connection string: the App Service system-assigned managed identity authenticates
+# to SQL, so there is no credential in this value at all (review finding M2). It is therefore not
+# a secret, and does not need Key Vault — it goes straight into app settings below.
+SQL_CONNECTION_STRING="Server=tcp:${SQL_SERVER_NAME}.database.windows.net,1433;Database=${SQL_DB_NAME};Authentication=Active Directory Default;Encrypt=True;TrustServerCertificate=False;Connect Timeout=60;"
 
-log "Storing secrets in Key Vault"
-# --file reads the value from disk instead of argv (M4). Written to a mode-600 temp file that is
-# removed on exit, including on error.
-SECRET_TMP="$(mktemp)"
-chmod 600 "$SECRET_TMP"
-trap 'rm -f "$SECRET_TMP"' EXIT
-
-printf '%s' "$SQL_CONNECTION_STRING" > "$SECRET_TMP"
-az keyvault secret set --vault-name "$KEYVAULT_NAME" --name SqlConnectionString --file "$SECRET_TMP" --output none
-
-printf '%s' "$SQL_ADMIN_PASSWORD" > "$SECRET_TMP"
-az keyvault secret set --vault-name "$KEYVAULT_NAME" --name SqlAdminPassword --file "$SECRET_TMP" --output none
-
-rm -f "$SECRET_TMP"
-ok "Secrets stored"
+# Nothing to store here any more. The old script wrote SqlConnectionString and SqlAdminPassword to
+# the vault; with Entra-only auth neither exists. Jwt--Key remains the one real secret, and is
+# managed outside this script.
+ok "No SQL secrets to store (passwordless via managed identity)"
 
 log "Granting identities access to Key Vault secrets"
 # App runtime (system-assigned) + the user-assigned/CI identity get read access.
@@ -369,7 +390,9 @@ fi
 
 # ---- 7. Wire app settings (Key Vault references + imported settings) --------
 log "Configuring web app settings"
-APP_SETTINGS=("SqlConnectionString=@Microsoft.KeyVault(VaultName=${KEYVAULT_NAME};SecretName=SqlConnectionString)")
+# The app reads ConnectionStrings__DefaultConnection. It is passwordless, so it is set directly
+# rather than through a Key Vault reference — there is no secret to protect.
+APP_SETTINGS=("ConnectionStrings__DefaultConnection=${SQL_CONNECTION_STRING}" "Database__Provider=SqlServer")
 if [[ "$ENABLE_STORAGE" == "true" ]]; then
   APP_SETTINGS+=("StorageConnectionString=@Microsoft.KeyVault(VaultName=${KEYVAULT_NAME};SecretName=StorageConnectionString)")
 fi
@@ -387,8 +410,9 @@ if [[ -n "$IMPORT_SETTINGS_FILE" ]]; then
       [[ "$line" != *"="* ]] && continue
       key="${line%%=*}"; val="${line#*=}"
       [[ -z "$key" ]] && continue
-      # Don't let a stale captured value clobber our freshly-built connection string.
-      [[ "$key" == "SqlConnectionString" ]] && continue
+      # Don't let a stale captured value clobber our freshly-built connection string. A captured
+      # environment may still carry the old password-bearing form; importing it would undo M2.
+      [[ "$key" == "ConnectionStrings__DefaultConnection" || "$key" == "SqlConnectionString" ]] && continue
       if [[ "$val" == @kv:* ]]; then
         val="@Microsoft.KeyVault(VaultName=${KEYVAULT_NAME};SecretName=${val#@kv:})"
       fi
@@ -419,11 +443,27 @@ Resources created in resource group: $RESOURCE_GROUP
 $( [[ "$ENABLE_STORAGE" == "true" ]] && echo "  Static website URL : $STATIC_WEB_URL" )
 EOF
 
-if [[ "$GENERATED_PW" == "1" ]]; then
-  echo
-  echo "NOTE: SQL admin password generated & stored in Key Vault. Retrieve with:"
-  echo "  az keyvault secret show --vault-name $KEYVAULT_NAME --name SqlAdminPassword --query value -o tsv"
-fi
+cat <<EOF
+
+NEXT STEP — grant the app's managed identity access INSIDE the database.
+Creating the server does not create a database user. Connect to '$SQL_DB_NAME' as the Entra
+admin ($ENTRA_ADMIN_NAME) and run:
+
+    CREATE USER [$WEBAPP_NAME] FROM EXTERNAL PROVIDER;
+    ALTER ROLE db_datareader ADD MEMBER [$WEBAPP_NAME];
+    ALTER ROLE db_datawriter ADD MEMBER [$WEBAPP_NAME];
+
+    -- Only while the schema is being created for the first time, then revoke:
+    --   ALTER ROLE db_ddladmin ADD MEMBER [$WEBAPP_NAME];
+    --   ALTER ROLE db_ddladmin DROP MEMBER [$WEBAPP_NAME];
+
+Reader + writer is all the app needs at runtime: both branches' initialisers are guarded and do
+not execute DDL against an existing schema (review finding M2). Leaving db_ddladmin in place
+would let anything that compromises the app drop or rewrite tables, not just rows.
+
+Verify the whole posture afterwards with:
+    ./scripts/check-azure-posture.sh
+EOF
 
 if [[ -n "$IMPORT_SETTINGS_FILE" || -n "$IMPORT_SECRETS_FILE" ]]; then
   cat <<EOF

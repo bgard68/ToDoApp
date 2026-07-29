@@ -458,3 +458,184 @@ Making the frontend container non-root meant nginx could no longer bind port 80,
 8080. `docker-compose.yml` here was updated from `8080:80` to `8080:8080` to match. The browser
 URL is unchanged (`http://localhost:8080`), but a stale container image will fail to connect until
 it is rebuilt.
+
+---
+
+# Addendum — M2 / M3 remediation, 2026-07-29
+
+The data-tier findings, actioned. This section supersedes the "not fixed in code" note under
+M2/M3 above.
+
+**Headline: the original M2 finding was wrong about production.** It was read off the provisioning
+scripts, not the live environment. Verifying first would have caught it — the same lesson three
+earlier bugs in this work taught (see the bug log). The finding was still *correct about the
+scripts*, which would have recreated the insecure shape on any new environment.
+
+## What was actually there
+
+| | Claimed by the review | Actually live |
+|---|---|---|
+| App to SQL auth | `sqladmin` + password in the connection string | **`Authentication=Active Directory Default`** — passwordless, via the App Service managed identity |
+| App's DB rights | server administrator | contained user in one database: `db_datareader`, `db_datawriter`, **`db_ddladmin`** |
+| SQL firewall | `AllowAzureServices` (0.0.0.0) | confirmed — `AllowAllWindowsAzureIps`, plus a Query Editor client IP |
+
+So M2 was already largely solved in production by work predating this review. Three genuine
+problems remained, two of which the review had not identified at all.
+
+## What was fixed
+
+### 1. An orphaned identity had write access to production data *(new finding)*
+
+`sys.database_principals` held **`taskboard-05-api`** — an external (Entra) user for a retired App
+Service — still a member of `db_datareader`, `db_datawriter` and `db_ddladmin`. The app itself no
+longer exists (`az webapp list` shows only `taskboard-06-api`), so nothing had removed its database
+user.
+
+    DROP USER [taskboard-05-api];
+
+This is the kind of thing only an inventory of the *database* surfaces — no amount of reading
+application code or ARM templates would show it.
+
+### 2. The live app had `db_ddladmin` it does not need
+
+Reader + writer is sufficient at runtime. Checked before changing anything:
+
+- **`main`** — EF's `EnsureCreatedAsync()` no-ops against a database that already has tables; it
+  never issues DDL.
+- **`dapper`** — `Schema.SqlServer.sql` guards every statement with
+  `IF OBJECT_ID(N'dbo.X', N'U') IS NULL`, so nothing executes against an existing schema.
+
+    ALTER ROLE db_ddladmin DROP MEMBER [taskboard-06-api];
+
+Schema creation is now a provisioning-time task, documented in both provision scripts. The point:
+`db_datawriter` already lets a compromised app delete every row — but `db_ddladmin` additionally
+lets it drop tables and create objects. Removing it shrinks what an application-level compromise
+can reach.
+
+### 3. SQL password authentication was still enabled *(new finding)*
+
+`azureAdOnlyAuthentication` was **false**. The app was passwordless, but the `taskmgr` server-admin
+login and its password remained a valid credential — reachable from anywhere the firewall allowed.
+A passwordless app in front of a still-password-protected server is only half the control.
+
+    az sql server ad-only-auth enable -g rg-taskboard -n taskboard-05-sql
+
+Safe here because an Entra administrator already exists and both the app and the tooling
+authenticate via Entra. **Risk accepted and worth stating:** with Entra-only auth on, losing that
+Entra account means losing administrative access to the server.
+
+### 4. M3 — the firewall no longer admits all of Azure
+
+`AllowAllWindowsAzureIps` (`0.0.0.0`) is Azure's "allow all Azure services" special case. It admits
+resources from **any Azure tenant**, not just this subscription — so with SQL auth still enabled
+(item 3), the only barrier was the password.
+
+Replaced with 22 rules, one per address in the App Service's `possibleOutboundIpAddresses`, then
+the blanket rule deleted.
+
+**Why not a Private Endpoint** — the stronger control needs VNet integration, which requires a
+Basic or higher App Service plan. This stack runs on **F1 (Free)**. Allow-listing outbound IPs is
+the correct answer *at this tier*, and is noted as such in the scripts so nobody "fixes" it later
+without knowing the constraint.
+
+**Why `possibleOutboundIpAddresses`, not `outboundIpAddresses`** — the latter is only the addresses
+in use right now. An App Service can move within its scale unit, so allow-listing the current set
+produces intermittent, hard-to-diagnose failures weeks later.
+
+One rule was left in place: `QueryEditorClientIPAddress_...` (the owner's own IP, for the portal
+Query Editor). Removing it would have taken away their console access.
+
+## How it was tested
+
+Each change was applied, then the **live** app was restarted and exercised before moving on — not
+batched and hoped for:
+
+| After | Test | Result |
+|---|---|---|
+| dropping the orphan + `db_ddladmin` | restart, then login / GET / POST / DELETE against the live API | 200 / 200 / created id 13 / 204 |
+| narrowing the firewall | restart, login + read | 200 / 200 |
+| enabling Entra-only auth | restart, login + read | 200 / 200 |
+
+Full CRUD under reader+writer alone is the meaningful result: it proves the app never needed
+`db_ddladmin`, rather than assuming it.
+
+A throwaway .NET console tool (`Microsoft.Data.SqlClient` with
+`Authentication=Active Directory Default`) was used to run the SQL, because it authenticates with
+the same Entra credential chain as the app — `sqlcmd` on this machine could not present an Entra
+token. It lives in the session scratchpad, not the repo.
+
+## How it is prevented from recurring
+
+**`scripts/check-azure-posture.sh`** and **`scripts/Check-AzurePosture.ps1`** — 11 assertions
+covering every item above, plus TLS versions, `httpsOnly`, and the H1 demo-seed setting. Read-only,
+exit 1 on any failure.
+
+**The checker was negative-tested**, because two earlier checks in this work reported success while
+the thing they checked was broken (`dotnet --info` as a HEALTHCHECK; a Docker readiness loop that
+printed "engine ready" with the engine down). The all-of-Azure rule was briefly re-added; the check
+went red and exited 1; the rule was removed by an `EXIT` trap. A check that has never failed is not
+yet a check.
+
+**Deliberately not a GitHub Actions workflow.** The deploy identity (`oidc-msi-ac8b`) holds
+`Website Contributor` on the App Service alone and cannot read SQL configuration. Widening it just
+to run a checker would trade a real, permanent privilege increase for convenience — the opposite of
+what these checks protect. (An attempt to grant it `Reader` on the SQL server failed with
+`MissingSubscription` regardless.) Run the checker from a shell or Cloud Shell.
+
+**Both provision scripts rewritten** so a *new* environment is created in this shape by default:
+
+- `az sql server create` takes `--enable-ad-only-auth` with `--external-admin-*` and **no**
+  `--admin-user` / `--admin-password` — there is no SQL password to store, rotate, or keep off the
+  command line. This retires finding M4 rather than merely mitigating it.
+- `--minimal-tls-version 1.2` pinned at creation.
+- Firewall built from `possibleOutboundIpAddresses`; the 0.0.0.0 rule is gone, with a comment
+  explaining the free-tier constraint.
+- Connection string is the passwordless Entra form, set directly as an app setting — it holds no
+  credential, so it no longer needs Key Vault. `SqlAdminPassword` / `SqlConnectionString` secrets
+  are no longer created.
+- The settings-import path refuses to overwrite `ConnectionStrings__DefaultConnection`, so
+  replaying a captured environment cannot silently reintroduce a password-bearing string.
+- Both scripts end by printing the `CREATE USER ... FROM EXTERNAL PROVIDER` plus reader/writer
+  grants, since creating a server does not create a database user.
+
+**`.github/workflows/scripts-lint.yml`** — the infra scripts had no coverage of any kind. Now every
+`.sh` is checked with `bash -n` and `shellcheck --severity=error`, and every `.ps1` is parsed.
+
+## Bugs found along the way
+
+### 11. `infra/Export-Azure.ps1` could never run *(pre-existing, unrelated to this work)*
+
+    Write-Host "`nContents of $OutputDir:"
+
+`$OutputDir:` is parsed as a drive-qualified variable reference (the `$env:PATH` form), which is a
+**parse error** — the entire script failed to load, and had done for as long as that line existed.
+Fixed with `${OutputDir}:`. This is exactly why `scripts-lint.yml` now exists: nothing in the repo
+executed these files, so a fatal error sat in one indefinitely.
+
+### 12. Two wrong diagnoses of that same parse failure, before the right one
+
+Windows PowerShell 5.1's `ParseFile` reported **45 errors** in the *pristine* `Provision.ps1`.
+
+1. First theory: the `.gitattributes` `eol=lf` rule broke backtick line-continuations. Plausible —
+   and wrong. I got as far as **adding `*.ps1 text eol=crlf` to `.gitattributes`** before testing
+   it; restoring CRLF changed nothing. The change was reverted, because a fix justified by a false
+   premise is not a fix.
+2. Second theory: `$x = if (...) {...}` is PowerShell 7-only syntax. Tested directly in 5.1 —
+   parses fine. Also wrong.
+3. Actual cause: the file is **UTF-8 without a BOM**, and `ParseFile` on 5.1 falls back to ANSI,
+   mangling the em-dashes in its comments into byte sequences that break string parsing. Reading
+   the file explicitly as UTF-8 and calling `ParseInput` parses it cleanly.
+
+My edits had been correct the whole time; the *validator* was broken. `scripts-lint.yml` reads
+files explicitly as UTF-8 for this reason, with a comment saying why — otherwise the next person
+gets the same wall of misleading errors.
+
+### 13. `&& echo "success"` after a failed command
+
+    az role assignment create ... -o none 2>&1 | tail -2 && echo "  Reader granted"
+
+`tail` succeeded, so the `&&` fired and printed success — while `az` had failed with
+`MissingSubscription`. Same shape as the Docker readiness loop (item 9) and the `dotnet --info`
+HEALTHCHECK (item 6): **three separate false-success reports in one piece of work.** The pattern is
+always checking the wrong thing's exit status. Re-run with an explicit `echo "exit code: $?"` after
+the command itself, not after a pipeline.
