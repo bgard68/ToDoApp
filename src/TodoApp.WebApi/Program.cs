@@ -116,12 +116,21 @@ builder.Services.AddCors(options =>
     options.AddPolicy(CorsPolicy, policy =>
         policy.WithOrigins(allowedOrigins)
               .AllowAnyHeader()
-              .AllowAnyMethod());
+              .AllowAnyMethod()
+              // Required for the httpOnly refresh cookie to be sent on cross-site requests
+              // (review finding H2). Safe because the origin list is an explicit allow-list —
+              // AllowCredentials cannot be combined with a wildcard origin, and ASP.NET Core
+              // throws at startup if anyone tries.
+              .AllowCredentials());
 });
 
 // Application + Infrastructure layers (Clean Architecture composition root).
 builder.Services.AddApplication();
 builder.Services.AddInfrastructure(builder.Configuration);
+
+// Refresh-token delivery (review finding H2): httpOnly cookie by default, with an opt-in to
+// also return it in the body for clients that have not migrated.
+builder.Services.Configure<AuthOptions>(builder.Configuration.GetSection(AuthOptions.SectionName));
 
 // JWT authentication + authorization (with security-stamp revocation check).
 builder.Services.AddJwtAuthentication(builder.Configuration);

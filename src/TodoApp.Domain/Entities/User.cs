@@ -55,6 +55,21 @@ public class User : BaseEntity
     }
 
     /// <summary>
+    /// Replaces the stored hash with an equivalent one computed at a stronger work factor,
+    /// WITHOUT rotating the security stamp (review finding L8).
+    /// </summary>
+    /// <remarks>
+    /// The secret has not changed — only how expensively it is stored — so outstanding sessions
+    /// stay valid. Rotating the stamp here would sign the user out of every device at the moment
+    /// they successfully signed in, which is both alarming and pointless.
+    /// </remarks>
+    public void UpgradePasswordHash(string passwordHash, DateTimeOffset now)
+    {
+        PasswordHash = passwordHash ?? throw new ArgumentNullException(nameof(passwordHash));
+        UpdatedAt = now;
+    }
+
+    /// <summary>
     /// Invalidates every access token previously issued to this user by changing the stamp
     /// they were signed with. Call on compromise, password change, or "sign out everywhere".
     /// </summary>

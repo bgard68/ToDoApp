@@ -58,3 +58,21 @@ public sealed class FakeGoogleTokenValidator : IGoogleTokenValidator
     public Task<GoogleUserInfo?> ValidateAsync(string idToken, CancellationToken cancellationToken)
         => Task.FromResult(Result);
 }
+
+/// <summary>
+/// Controllable breached-password checker (review finding L9). Defaults to "not breached" so
+/// existing tests are unaffected; set <see cref="Breached"/> to exercise the rejection path.
+/// Tests never touch the network.
+/// </summary>
+public sealed class FakeBreachedPasswordChecker : IBreachedPasswordChecker
+{
+    public bool Breached { get; set; }
+
+    public int CallCount { get; private set; }
+
+    public Task<bool> IsBreachedAsync(string password, CancellationToken cancellationToken)
+    {
+        CallCount++;
+        return Task.FromResult(Breached);
+    }
+}

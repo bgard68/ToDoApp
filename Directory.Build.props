@@ -18,5 +18,13 @@
     <!-- Keep the built-in .NET analyzers on across src/ and tests/. -->
     <EnableNETAnalyzers>true</EnableNETAnalyzers>
     <AnalysisLevel>latest</AnalysisLevel>
+
+    <!--
+      Warnings are errors (review finding L11). A warning nobody fails on is a warning nobody
+      reads, and the ones that matter (obsolete crypto APIs, nullability holes) hide in the noise.
+      Turned on only after the existing warning surface was cleared to zero, so it lands as a
+      guarantee rather than a wall of unrelated failures.
+    -->
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
   </PropertyGroup>
 </Project>
