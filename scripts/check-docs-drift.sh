@@ -41,6 +41,15 @@ if [ ${#DOCS[@]} -eq 0 ]; then
   exit 0
 fi
 
+# Which flavour of branch is this? main/dapper carry the .NET solution; frontend carries the SPA.
+# The docs deliberately cross-reference each other, so a path belonging to the OTHER branch is a
+# valid reference, not drift — checking it here would just teach people to delete useful links.
+if [ -f TodoApp.sln ]; then
+  FLAVOUR="api"
+else
+  FLAVOUR="spa"
+fi
+
 echo
 echo "Documentation drift check"
 echo "------------------------------------------------------------"
@@ -55,6 +64,13 @@ for doc in "${DOCS[@]}"; do
     [ -z "$ref" ] && continue
     # Strip a trailing ':123' line reference if present.
     path="${ref%%:*}"
+    # Skip references into the other branch's tree (see FLAVOUR above).
+    if [ "$FLAVOUR" = "spa" ] && case "$path" in src/TodoApp.*|tests/*|docs/*|infra/*) true;; *) false;; esac; then
+      continue
+    fi
+    if [ "$FLAVOUR" = "api" ] && case "$path" in src/lib/*|src/components/*|src/hooks/*) true;; *) false;; esac; then
+      continue
+    fi
     if [ ! -e "$path" ]; then
       bad "$doc cites '$path', which does not exist"
       missing=$((missing+1))
@@ -96,6 +112,8 @@ promise() {
     grep -qi -- "$doc_pattern" "$doc" && claimed=1
   done
   [ "$claimed" -eq 0 ] && return 0          # not claimed on this branch; nothing to verify
+  # The frontend branch documents the API-side controls by reference; the code lives elsewhere.
+  [ ! -e "$(dirname "$file")" ] && return 0
   if [ -f "$file" ] && grep -q -- "$file_pattern" "$file"; then
     ok "$label — documented and present in the code"
   else
