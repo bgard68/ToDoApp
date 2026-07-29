@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { AuthApi, getRefreshToken, setOnUnauthorized, setOnServerWaking } from './lib/apiClient.js';
+import { AuthApi, hasSession, setOnUnauthorized, setOnServerWaking } from './lib/apiClient.js';
 import AuthForm from './components/AuthForm.jsx';
 import KanbanBoard from './components/KanbanBoard.jsx';
 import ThemeToggle from './components/ThemeToggle.jsx';
@@ -15,7 +15,7 @@ export default function App() {
     setOnServerWaking(setWaking); // show a note when a cold start is being waited out
 
     (async () => {
-      if (getRefreshToken()) {
+      if (hasSession()) {
         const ok = await AuthApi.refresh();
         if (ok) {
           try {

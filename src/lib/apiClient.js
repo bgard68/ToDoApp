@@ -1,9 +1,20 @@
 // API client for the Todo backend with JWT auth.
-// - Access token is held in memory only.
-// - Refresh token is persisted so a page reload can silently re-authenticate.
-//   (For production, prefer an httpOnly cookie for the refresh token; see README.)
+//
+// - Access token: in memory only. Lost on reload, which is fine — the refresh cookie restores it.
+// - Refresh token: NEVER touched by this code. It lives in an httpOnly cookie the browser holds
+//   and attaches automatically, so no script (including an injected one) can read it.
+//   This closes review finding H2; it used to sit in localStorage, where any XSS could lift a
+//   7-day, silently-renewing session in a single line.
+//
+// Because the cookie is httpOnly we cannot tell whether one exists. `credentials: 'include'` on
+// every call lets the browser decide, and a failed refresh simply means "not signed in".
 const BASE = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '');
-const REFRESH_KEY = 'todo.refreshToken';
+
+// Companion double-submit cookie for the refresh endpoint. This one is deliberately readable —
+// echoing it in a header is what proves the request came from our own page rather than a
+// cross-site form post. It is not a secret; it is a same-origin-policy proof.
+const CSRF_COOKIE = 'todo_rt_csrf';
+const CSRF_HEADER = 'X-Refresh-CSRF';
 
 let accessToken = null;
 let onUnauthorized = null;
@@ -14,16 +25,22 @@ export function setOnUnauthorized(fn) {
 
 export function setSession(auth) {
   accessToken = auth.accessToken;
-  localStorage.setItem(REFRESH_KEY, auth.refreshToken);
+  // Nothing else to do: the server set the refresh cookie on this response.
 }
 
 export function clearSession() {
   accessToken = null;
-  localStorage.removeItem(REFRESH_KEY);
+  // The refresh cookie is cleared server-side by /api/auth/logout.
 }
 
-export function getRefreshToken() {
-  return localStorage.getItem(REFRESH_KEY);
+function readCsrf() {
+  const match = document.cookie.match(new RegExp('(?:^|; )' + CSRF_COOKIE + '=([^;]*)'));
+  return match ? decodeURIComponent(match[1]) : null;
+}
+
+/** True when a refresh cookie plausibly exists, so a silent sign-in is worth attempting. */
+export function hasSession() {
+  return readCsrf() !== null;
 }
 
 async function parse(res) {
@@ -89,7 +106,10 @@ async function wakeFetch(url, init) {
 function doFetch(path, options = {}) {
   const headers = { 'Content-Type': 'application/json', ...(options.headers || {}) };
   if (accessToken) headers.Authorization = `Bearer ${accessToken}`;
-  return wakeFetch(`${BASE}${path}`, { ...options, headers });
+  // credentials: 'include' — the refresh cookie is cross-site (SPA and API are different hosts),
+  // so the browser only attaches it when asked. The API's CORS policy names this origin
+  // explicitly and allows credentials.
+  return wakeFetch(`${BASE}${path}`, { ...options, headers, credentials: 'include' });
 }
 
 // A single in-flight refresh shared by all callers. Without this, two requests that
@@ -108,13 +128,14 @@ function refreshSession() {
 }
 
 async function performRefresh() {
-  const refreshToken = getRefreshToken();
-  if (!refreshToken) return false;
+  const csrf = readCsrf();
+  if (!csrf) return false;   // no cookie -> not signed in; don't bother the server
 
   const res = await wakeFetch(`${BASE}/api/auth/refresh`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ refreshToken }),
+    headers: { 'Content-Type': 'application/json', [CSRF_HEADER]: csrf },
+    credentials: 'include',   // the httpOnly cookie carries the actual token
+    body: '{}',
   });
 
   if (!res.ok) {
@@ -130,7 +151,7 @@ async function performRefresh() {
 async function request(path, options = {}) {
   let res = await doFetch(path, options);
 
-  if (res.status === 401 && getRefreshToken()) {
+  if (res.status === 401 && hasSession()) {
     const refreshed = await refreshSession();
     if (refreshed) res = await doFetch(path, options);
   }
@@ -152,6 +173,7 @@ async function publicPost(path, body) {
   const res = await wakeFetch(`${BASE}${path}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',   // so the browser stores the refresh cookie the server sets
     body: JSON.stringify(body),
   });
   const data = await parse(res);
@@ -182,14 +204,9 @@ export const AuthApi = {
     return request('/api/auth/me');
   },
   async logout() {
-    const refreshToken = getRefreshToken();
     try {
-      if (refreshToken) {
-        await request('/api/auth/logout', {
-          method: 'POST',
-          body: JSON.stringify({ refreshToken }),
-        });
-      }
+      // The server reads the refresh token from the cookie and clears it on the way out.
+      await request('/api/auth/logout', { method: 'POST', body: '{}' });
     } finally {
       clearSession();
     }

@@ -64,10 +64,27 @@ Two details worth calling out:
   per-response nonce, so it is allow-listed by SHA-256. `script-src` contains no `'unsafe-inline'`
   and no `'unsafe-eval'`.
 
-**Not fixed — deliberately deferred:** moving the refresh token to an `httpOnly` cookie. That's a
-change to the auth contract (CSRF protection, cookie domain, the SWA/App-Service cross-origin
-split), not a hardening tweak. The headers above remove the practical exploit path. It remains the
-right long-term move.
+**Now fixed (2026-07-29).** The deferral is closed — the refresh token no longer touches
+`localStorage` at all. It is delivered as an `httpOnly; Secure; SameSite=None` cookie scoped to
+`/api/auth`, so no script can read it, including an injected one.
+
+- `SameSite=None` is forced by the SPA (`*.azurestaticapps.net`) and API (`*.azurewebsites.net`)
+  being different sites. Same-origin would be better, but it needs the Static Web Apps
+  linked-backend proxy — a **Standard-tier** feature, and this stack is Free tier.
+- **CSRF** is covered by a double-submit companion cookie (`todo_rt_csrf`, deliberately readable)
+  echoed in an `X-Refresh-CSRF` header and compared in constant time. A cross-site attacker can
+  cause the httpOnly cookie to be sent but cannot read the companion to reproduce the header —
+  that is exactly what the same-origin policy prevents.
+- Every request now uses `credentials: 'include'`, and the API's CORS policy adds
+  `AllowCredentials()` against its explicit origin allow-list (a wildcard origin is impossible
+  with credentials — ASP.NET Core throws at startup).
+- `Auth:RefreshTokenInBody` keeps the old body-delivered shape available for the PowerShell smoke
+  test and any unmigrated client. Off by default in deployed environments.
+
+**Test** — `src/lib/tokenStorage.test.js` (5): asserts the client never calls
+`localStorage`/`sessionStorage`, sends `credentials: 'include'`, echoes the CSRF header, and never
+puts a refresh token in a request body. It strips comments before matching, so the source can
+still *explain* why localStorage is gone without failing its own guard.
 
 ### How it's prevented going forward
 
@@ -186,8 +203,16 @@ on every relevant change. That workflow does more than a local build would have:
 Trivy reports rather than blocks: base-image CVEs appear and are fixed on the image maintainer's
 schedule, not ours, so a failing build would just train everyone to ignore a red X.
 
-**Still open:** base images are pinned by tag, not digest. Digest pinning needs a registry
-round-trip to resolve and a process to refresh them.
+**Now fixed (2026-07-29).** Base images are pinned by digest:
+
+```
+node:22-alpine@sha256:16e22a550f3863206a3f701448c45f7912c6896a62de43add43bb9c86130c3e2
+nginxinc/nginx-unprivileged:alpine@sha256:59ccf0943b0b8e8d9e6ea9039a39555730f544701a655c596f7df7d096c593f5
+```
+
+A tag is mutable — the same Dockerfile can produce a different image tomorrow, so a reproducible
+build and an audited base are impossible with tags alone. The refresh command is in a comment
+above each `FROM`, and the container-build workflow proves the digests still resolve.
 
 ---
 
