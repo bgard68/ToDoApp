@@ -63,7 +63,7 @@ public class BreachedPasswordTests
         _breachChecker.Breached = false;
 
         var response = await Register(db).Handle(
-            new RegisterCommand { Email = "someone@example.test", Password = "a-long-unique-passphrase-9" },
+            new RegisterCommand { Email = "someone@example.test", Password = "Password1" },
             CancellationToken.None);
 
         response.AccessToken.Should().NotBeNullOrEmpty();
@@ -79,7 +79,7 @@ public class BreachedPasswordTests
         _breachChecker.Breached = false;
 
         var response = await Register(db).Handle(
-            new RegisterCommand { Email = "someone@example.test", Password = "a-long-unique-passphrase-9" },
+            new RegisterCommand { Email = "someone@example.test", Password = "Password1" },
             CancellationToken.None);
 
         response.AccessToken.Should().NotBeNullOrEmpty();

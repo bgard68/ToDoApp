@@ -39,7 +39,7 @@ public class RefreshCookieTests : IClassFixture<CookieOnlyFactory>
         var client = HttpsClient(handleCookies: false);
 
         var register = await client.PostAsJsonAsync("/api/auth/register",
-            new { email = ApiHelpers.UniqueEmail(), password = "a-long-unique-passphrase-9" });
+            new { email = ApiHelpers.UniqueEmail(), password = "Password1" });
         register.EnsureSuccessStatusCode();
 
         var setCookie = CookieAttribute(register, "todo_rt");
@@ -58,7 +58,7 @@ public class RefreshCookieTests : IClassFixture<CookieOnlyFactory>
         var client = HttpsClient();
 
         var response = await client.PostAsJsonAsync("/api/auth/register",
-            new { email = ApiHelpers.UniqueEmail(), password = "a-long-unique-passphrase-9" });
+            new { email = ApiHelpers.UniqueEmail(), password = "Password1" });
         response.EnsureSuccessStatusCode();
 
         var body = await response.Content.ReadFromJsonAsync<AuthResult>();
@@ -73,7 +73,7 @@ public class RefreshCookieTests : IClassFixture<CookieOnlyFactory>
         var client = HttpsClient();
 
         var register = await client.PostAsJsonAsync("/api/auth/register",
-            new { email = ApiHelpers.UniqueEmail(), password = "a-long-unique-passphrase-9" });
+            new { email = ApiHelpers.UniqueEmail(), password = "Password1" });
         register.EnsureSuccessStatusCode();
 
         var csrf = ExtractCsrf(register);
@@ -97,7 +97,7 @@ public class RefreshCookieTests : IClassFixture<CookieOnlyFactory>
         var client = HttpsClient();
 
         var register = await client.PostAsJsonAsync("/api/auth/register",
-            new { email = ApiHelpers.UniqueEmail(), password = "a-long-unique-passphrase-9" });
+            new { email = ApiHelpers.UniqueEmail(), password = "Password1" });
         register.EnsureSuccessStatusCode();
 
         // Cookie is present (the handler stores it) but the double-submit header is missing —
@@ -113,7 +113,7 @@ public class RefreshCookieTests : IClassFixture<CookieOnlyFactory>
         var client = HttpsClient();
 
         var register = await client.PostAsJsonAsync("/api/auth/register",
-            new { email = ApiHelpers.UniqueEmail(), password = "a-long-unique-passphrase-9" });
+            new { email = ApiHelpers.UniqueEmail(), password = "Password1" });
         register.EnsureSuccessStatusCode();
 
         using var request = new HttpRequestMessage(HttpMethod.Post, "/api/auth/refresh")
@@ -133,7 +133,7 @@ public class RefreshCookieTests : IClassFixture<CookieOnlyFactory>
         var client = HttpsClient();
 
         var register = await client.PostAsJsonAsync("/api/auth/register",
-            new { email = ApiHelpers.UniqueEmail(), password = "a-long-unique-passphrase-9" });
+            new { email = ApiHelpers.UniqueEmail(), password = "Password1" });
         register.EnsureSuccessStatusCode();
         var auth = await register.Content.ReadFromJsonAsync<AuthResult>();
         client.Authorize(auth!.AccessToken);
