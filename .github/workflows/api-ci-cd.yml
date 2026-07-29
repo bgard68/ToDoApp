@@ -1,4 +1,4 @@
-name: Build and Deploy taskboard-06-api
+name: Build and Test (dapper)
 
 on:
   push:
@@ -100,38 +100,12 @@ jobs:
           path: ./publish
           retention-days: 30
 
-  # ---- Deploy ----
-  # Auto-deploys on push to main. A manual "Run workflow" (workflow_dispatch) deploys whichever
-  # branch is selected in the Actions UI — this is how the EF Core (main) and Dapper (dapper)
-  # branches are each shipped on demand to the same App Service. PRs build + test but never deploy.
-  #
-  # Split into its own job gated on `environment:` so a manual deploy of a non-main branch can be
-  # held for approval via the environment's protection rules, rather than shipping straight from
-  # whatever branch the operator picked.
-  deploy:
-    name: Deploy API
-    needs: build-and-test
-    if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    environment: production
-
-    steps:
-      - name: Download build artifact
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
-        with:
-          name: api-publish
-          path: ./publish
-
-      - name: Azure login
-        uses: azure/login@a457da9ea143d694b1b9c7c869ebb04ebe844ef5 # v2
-        with:
-          client-id: ${{ secrets.AZUREAPPSERVICE_CLIENTID_566B4FFECC144FF99662F3E334946913 }}
-          tenant-id: ${{ secrets.AZUREAPPSERVICE_TENANTID_666F8329ACAC4EF9A4E3DFE024EB99CA }}
-          subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID_0056D27AD4F64315858EF3757BCD85C7 }}
-
-      - name: Deploy to Azure Web App
-        uses: azure/webapps-deploy@02a81bead70021f5284939794bcec79c271ab383 # v3
-        with:
-          app-name: taskboard-06-api
-          package: ./publish
+# ---- No deploy job on this branch, by design ----
+#
+# `dapper` is a permanent parallel implementation, NOT a deployable variant: the Azure App Service
+# runs `main` and has never run this branch (verified against the deploy history — every run is
+# main/push). The job that used to live here could still ship it via a manual "Run workflow",
+# which contradicted that and made an accident one click away.
+#
+# Build, test, audit and publish above all still run, so this branch stays honest about whether it
+# compiles and passes — it just cannot reach production.

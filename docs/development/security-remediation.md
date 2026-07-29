@@ -140,8 +140,18 @@ length, so one request could drive 100k PBKDF2 iterations over a multi-megabyte 
 ### M1 — Log-forging fix existed on `main` but not on `dapper`
 
 **Was:** `main` stripped CR/LF from `Request.Path` before logging (CodeQL `cs/log-forging`);
-`dapper` logged it raw. Since `workflow_dispatch` deploys whichever branch is selected to the same
-App Service, shipping `dapper` regressed a fix that had already been made and written up.
+`dapper` logged it raw — a fix that had already been made, reviewed and written up, missing on the
+other branch.
+
+> **Correction (2026-07-29).** This finding was originally justified by claiming
+> `workflow_dispatch` could ship `dapper` to the same App Service. That was wrong: the deploy
+> history shows **every** deploy is `main`/push and `dapper` has never been deployed. The
+> capability existed in the workflow file, so it was a latent footgun rather than an active
+> exposure — and it has now been removed, so `dapper` cannot deploy at all.
+>
+> The fix still stands on its own: a security fix present on one branch and absent on its twin is
+> a defect regardless of what ships. But its severity was **overstated**, and the M1 rating should
+> be read as code-consistency, not production exposure.
 
 **Fix:** the sanitisation moved into `TodoApp.Application.Common.Logging.LogSanitizer`, which
 strips **all** control characters (not just CR/LF — ESC enables terminal escape injection too).
