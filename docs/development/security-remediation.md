@@ -3,6 +3,9 @@
 > **This is the `dapper` branch.** Everything below was applied here independently of `main` —
 > the branches are maintained in parallel and `dapper` is not merged into `main`. Sections marked
 > *dapper only* do not apply to the EF Core branch.
+>
+> The Azure resources are shared (both branches deploy to `taskboard-06-api`), so the H1 demo
+> settings and the M2/M3 data-tier fixes hold whichever branch is deployed there.
 
 Findings from the Senior DevSecOps review of `main`, `dapper` and `frontend`, what was changed,
 and what now stops each one coming back.
@@ -161,7 +164,12 @@ CRLF injection stripped, ESC/BEL/NUL stripped, ordinary and non-ASCII values unt
 Key Vault writes use `--file` with a mode-600 temp file removed via an `EXIT` trap. The PowerShell
 twin already used `SecureString`/`PSCredential`.
 
-**M2 and M3 are NOT fixed in code** — they are changes to a live Azure environment, not to the
+> **SUPERSEDED — see the M2/M3 addendum at the end of this document (2026-07-29).** Both are
+> now fixed in the live environment and in the provision scripts, and verifying the live
+> environment showed the M2 description below was wrong about production. The paragraph that
+> follows is kept as the original finding, not as current state.
+
+**M2 and M3 were NOT fixed in code at the time of the original review** — they are changes to a live Azure environment, not to the
 repository, and applying them blind would risk breaking the running deployment. Recorded here as
 accepted-and-open:
 
@@ -226,32 +234,15 @@ Worth adding if the Docker path ever becomes the deployment path.
 
 ---
 
-### M7 — Fake Google token validator compiled into the production assembly *(dapper only)*
+### M7 — Fake Google token validator compiled into the production assembly
 
-**Was:** `FakeGoogleTokenValidator` lives in the Infrastructure assembly and turns a token of the
-form `fake:{email}` into a **verified** Google identity (`emailVerified: true`) for any address the
-caller supplies. It was registered only when `IsDevelopment()` **and**
-`Authentication:Google:UseFake=true`.
-
-The runtime guard is correctly written — but both conditions are app settings, and app settings are
-exactly what a Provision/Export round-trip copies between environments
-(`Provision.ps1` merges captured settings wholesale). The blast radius is authentication bypass as
-any user, which warrants a stronger barrier than configuration.
-
-**Fix:** the class and its registration are both wrapped in `#if DEBUG`. Release builds — which is
-what ships — do not contain the type at all, so no combination of environment variables can reach
-it. Local development runs Debug, so the smoke test and demo flow are unaffected.
-
-**Test** — `tests/TodoApp.UnitTests/Security/FakeValidatorExclusionTests.cs`: resolves the type by
-name from the shipped assembly (a `typeof()` reference would not compile in Release, which is the
-property under test) and asserts it is **present in Debug** and **absent in Release**. The suite is
-run in both configurations; the test asserts the opposite fact in each and passes in both.
+Applies to `dapper` only. See that branch's entry in this file.
 
 ---
 
 ### M8 — Frontend deploy workflow missed the API workflows' hardening
 
-Applies to the `frontend` branch. See that branch's copy of this file.
+Applies to `frontend`. See that branch's entry in this file.
 
 ---
 
@@ -366,36 +357,8 @@ dotnet build   TodoApp.sln -c Release         # 0 warnings, 0 errors
 dotnet test    TodoApp.sln -c Release
 ```
 
-**81 tests pass** on `dapper` (54 unit + 27 integration), up from 53 (36 + 17) — one more than
-`main`, which does not carry the M7 exclusion test.
-
-Run in **both** configurations, because `FakeValidatorExclusionTests` asserts a different fact in
-each:
-
-```
-dotnet test TodoApp.sln -c Debug      # 81 pass
-dotnet test TodoApp.sln -c Release    # 81 pass
-```
-
-**28 new tests**, all of which fail against the pre-fix code.
-
-## Notes specific to this branch
-
-- **H1** — `DbInitializer` here resolves its collaborators from an `IServiceProvider` and seeds
-  through the repositories inside a `UnitOfWork` transaction, so the opt-in guard sits after
-  `EnsureCreatedAsync` (the schema must still be built when seeding is off) and before any
-  repository is resolved. The local `seed` array was renamed to `items` to make room for the new
-  `seed` options parameter.
-- **L7** — the expired-token revocation needs an explicit `_refreshTokens.UpdateAsync`, since
-  there is no change tracker to flush.
-- **Dependency alignment** — pinning surfaced a pre-existing `IDX00001` warning:
-  `System.IdentityModel.Tokens.Jwt` had floated to 8.20.0 while the `Microsoft.IdentityModel.*`
-  packages sat at a different version, which that package warns can cause `TypeLoadException` at
-  runtime. It is now pinned to **8.19.2**, matching `main`. The warning is gone and the two
-  branches resolve the same identity stack.
-- **The SQL layer needed no changes.** The Dapper repositories were already fully parameterised,
-  scoped by `UserId` on every query, and escaping `LIKE` wildcards with an explicit `ESCAPE`
-  clause. The review found nothing to fix there.
+**80 tests pass** on `main` (53 unit + 27 integration), up from 53 (36 + 17).
+**27 new tests**, all of which fail against the pre-fix code.
 
 ---
 
@@ -652,7 +615,7 @@ what these checks protect. (An attempt to grant it `Reader` on the SQL server fa
 
 ## Bugs found along the way
 
-### 11. `infra/Export-Azure.ps1` could never run *(pre-existing, unrelated to this work)*
+### 12. `infra/Export-Azure.ps1` could never run *(pre-existing, unrelated to this work)*
 
     Write-Host "`nContents of $OutputDir:"
 
@@ -661,7 +624,7 @@ what these checks protect. (An attempt to grant it `Reader` on the SQL server fa
 Fixed with `${OutputDir}:`. This is exactly why `scripts-lint.yml` now exists: nothing in the repo
 executed these files, so a fatal error sat in one indefinitely.
 
-### 12. Two wrong diagnoses of that same parse failure, before the right one
+### 13. Two wrong diagnoses of that same parse failure, before the right one
 
 Windows PowerShell 5.1's `ParseFile` reported **45 errors** in the *pristine* `Provision.ps1`.
 
@@ -679,7 +642,7 @@ My edits had been correct the whole time; the *validator* was broken. `scripts-l
 files explicitly as UTF-8 for this reason, with a comment saying why — otherwise the next person
 gets the same wall of misleading errors.
 
-### 13. `&& echo "success"` after a failed command
+### 14. `&& echo "success"` after a failed command
 
     az role assignment create ... -o none 2>&1 | tail -2 && echo "  Reader granted"
 
