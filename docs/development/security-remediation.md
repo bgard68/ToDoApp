@@ -134,8 +134,18 @@ length, so one request could drive 100k PBKDF2 iterations over a multi-megabyte 
 ### M1 — Log-forging fix existed on `main` but not on `dapper`
 
 **Was:** `main` stripped CR/LF from `Request.Path` before logging (CodeQL `cs/log-forging`);
-`dapper` logged it raw. Since `workflow_dispatch` deploys whichever branch is selected to the same
-App Service, shipping `dapper` regressed a fix that had already been made and written up.
+`dapper` logged it raw — a fix that had already been made, reviewed and written up, missing on the
+other branch.
+
+> **Correction (2026-07-29).** This finding was originally justified by claiming
+> `workflow_dispatch` could ship `dapper` to the same App Service. That was wrong: the deploy
+> history shows **every** deploy is `main`/push and `dapper` has never been deployed. The
+> capability did exist in that branch's workflow, so it was a latent footgun rather than an active
+> exposure — and it has since been removed, so `dapper` cannot deploy at all.
+>
+> The fix stands on its own: a security fix present on one branch and absent on its twin is a
+> defect regardless of what ships. But the severity was **overstated** — read M1 as
+> code-consistency, not production exposure.
 
 **Fix:** the sanitisation moved into `TodoApp.Application.Common.Logging.LogSanitizer`, which
 strips **all** control characters (not just CR/LF — ESC enables terminal escape injection too).
@@ -221,9 +231,10 @@ branch — so the React/Vite tree on `frontend` was monitored by nothing at all.
 > GitHub rejects an advanced-setup workflow while default setup is active. This is called out at
 > the top of `codeql.yml`.
 
-**Still open:** container image scanning (Trivy/Grype) is not wired up — there is no image
-registry in this deployment (App Service takes a zip), so it would scan an artefact nothing runs.
-Worth adding if the Docker path ever becomes the deployment path.
+**Now closed.** `.github/workflows/container-build.yml` builds both images and scans them with
+Trivy, uploading SARIF to the Security tab. It also asserts the image does not run as root. The
+images are still not the deployment path (App Service takes a zip), but they are advertised in the
+README, so proving they build and are scanned is worth the CI minutes.
 
 ---
 
@@ -278,9 +289,9 @@ been:
 Trivy reports rather than blocks: base-image CVEs appear and are fixed on Microsoft's schedule,
 not ours, so failing the build would just train everyone to ignore a red X.
 
-**Still open:** base images are pinned by tag (`mcr.microsoft.com/dotnet/aspnet:10.0`), not by
-digest. Digest pinning needs a registry round-trip to resolve and a process to refresh them;
-worth doing, not done here.
+**Now closed.** Base images are pinned by digest, not tag — a tag is mutable, so the same
+Dockerfile could otherwise produce a different image tomorrow. The refresh command is in a comment
+above each `FROM`, and the container-build workflow proves the digests still resolve.
 
 ---
 
