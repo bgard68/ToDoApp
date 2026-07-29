@@ -52,6 +52,12 @@ jobs:
       - name: Audit dependencies
         run: npm audit --audit-level=high
 
+      # Security docs must match the tree they describe. Drift recurred four times during the
+      # remediation; this fails on facts (a cited file that is gone, a retracted claim reappearing)
+      # rather than on wording, so it cannot be satisfied by rephrasing.
+      - name: Security docs must match the repository
+        run: bash scripts/check-docs-drift.sh
+
       - name: Run frontend tests (gate - deploy is skipped if these fail)
         run: npm test
 
