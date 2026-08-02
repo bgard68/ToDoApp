@@ -165,43 +165,42 @@ jobs:
           fi
           echo "ok  gitleaks rejects a planted secret - caught, as it must be"
 
-      # The digest this repository ran on until it was bumped this morning, whose
-      # 28 fixable CRITICAL/HIGH findings are the reason these probes exist. A
-      # known-good subject: rebuilding on the current digest cleared every one of
-      # them, so they are demonstrably fixable rather than merely present.
+      # Trivy is asserted by configuration rather than by behaviour, which is a
+      # weaker check and a deliberate one.
       #
-      # Deliberately NOT an end-of-life image such as alpine:3.14, which was the
-      # first attempt and made this probe fail. Nothing is fixed for a release
-      # nobody maintains, so `ignore-unfixed: true` skips its entire CVE list and
-      # the scan passes — reporting a broken gate that was working correctly.
-      - name: Build an image on the superseded base
+      # A behavioural probe needs an image that permanently carries fixable
+      # CRITICAL/HIGH findings, and no such image exists. Two were tried. An
+      # end-of-life release (alpine:3.14) has nothing fixed for it at all, so
+      # `ignore-unfixed` skips its whole list. The superseded aspnet digest this
+      # repository ran on until this morning — 28 findings when it was replaced —
+      # scans clean now, because Ubuntu published the fixes in the meantime.
+      #
+      # That is the shape of the problem: the subject has to be vulnerable today
+      # and stay vulnerable, and the world keeps patching. A probe that fails for
+      # reasons unconnected to this repository is worse than no probe, because it
+      # trains people to rerun red jobs.
+      #
+      # So this guards the thing that actually went wrong instead. The scan ran
+      # with exit-code 0 for its entire life — reporting faithfully, blocking
+      # nothing, while 28 findings banked up behind a passing job. Setting it back
+      # is a one-character edit, and this is what refuses it.
+      - name: Probe - the container scan is configured to block
         run: |
-          {
-            echo 'FROM mcr.microsoft.com/dotnet/aspnet:10.0@sha256:1fa23fc4872d95fd71c2833ebe65d7e84a43b2d51a31d119516852f13d9505a7'
-            echo 'CMD ["true"]'
-          } > Dockerfile.probe
-          docker build -f Dockerfile.probe -t probe-outdated:ci . > /dev/null
-
-      - name: Probe - Trivy scan of that image, expected to fail
-        id: trivy_probe
-        continue-on-error: true
-        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
-        with:
-          image-ref: probe-outdated:ci
-          format: table
-          severity: CRITICAL,HIGH
-          # Deliberately the same settings the real scan uses, so this proves
-          # that configuration blocks rather than some stricter one.
-          exit-code: '1'
-          ignore-unfixed: true
-
-      - name: Probe - Trivy rejects a vulnerable image
-        run: |
-          if [ "${{ steps.trivy_probe.outcome }}" != "failure" ]; then
-            echo "::error title=Probe failed::Trivy passed an image with known fixable CVEs, so exit-code is not blocking."
-            exit 1
-          fi
-          echo "ok  Trivy rejects a vulnerable image - caught, as it must be"
+          set -uo pipefail
+          fail=0
+          for f in .github/workflows/container-build.yml; do
+            [ -f "$f" ] || continue
+            if grep -qE "exit-code:\s*'0'" "$f"; then
+              echo "::error title=Probe failed::$f runs Trivy with exit-code 0, so the scan reports without blocking."
+              fail=1
+            elif grep -qE "exit-code:\s*'1'" "$f"; then
+              echo "ok  $f scans with exit-code 1 - blocking, as it must be"
+            else
+              echo "::error title=Probe inconclusive::no exit-code found in $f; the default is 0, which does not block."
+              fail=1
+            fi
+          done
+          exit $fail
 
       - name: All probes caught what they must
         run: echo "GATE PROBES PASSED - every gate rejected what it was shown."
