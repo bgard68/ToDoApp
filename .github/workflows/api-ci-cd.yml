@@ -9,14 +9,13 @@ on:
       - 'TodoApp.sln'
       - 'Directory.Build.props'
       - '.github/workflows/api-ci-cd.yml'
+  # No paths filter on pull_request, deliberately. A path-filtered check never
+  # reports on a pull request that misses its paths, and a required check that
+  # never reports blocks the merge for ever — so these could not be required,
+  # which is how auto-merge landed two bumps here while this job was failing.
+  # The push trigger keeps its filter: no reason to rebuild on a docs edit.
   pull_request:
     branches: [ main ]
-    paths:
-      - 'src/**'
-      - 'tests/**'
-      - 'TodoApp.sln'
-      - 'Directory.Build.props'
-      - '.github/workflows/api-ci-cd.yml'
   workflow_dispatch:
 
 # Required for OIDC (federated) login to Azure — no stored password/publish-profile.

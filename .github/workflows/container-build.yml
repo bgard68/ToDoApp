@@ -18,14 +18,13 @@ on:
       - 'src/**'
       - 'Directory.Build.props'
       - '.github/workflows/container-build.yml'
+  # No paths filter on pull_request, deliberately. A path-filtered check never
+  # reports on a pull request that misses its paths, and a required check that
+  # never reports blocks the merge for ever — so these could not be required,
+  # which is how auto-merge landed two bumps here while this job was failing.
+  # The push trigger keeps its filter: no reason to rebuild on a docs edit.
   pull_request:
     branches: [ main, dapper ]
-    paths:
-      - 'Dockerfile.api'
-      - 'docker-compose.yml'
-      - 'src/**'
-      - 'Directory.Build.props'
-      - '.github/workflows/container-build.yml'
   schedule:
     # Base images pick up CVEs without the Dockerfile changing.
     - cron: '23 5 * * 1'
