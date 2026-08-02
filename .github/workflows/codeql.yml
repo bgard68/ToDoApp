@@ -1,0 +1,60 @@
+name: CodeQL
+
+# SAST as versioned, reviewable configuration rather than a setting in the GitHub UI —
+# the same argument as on `main`: a UI setting cannot be diffed, does not travel to a fork,
+# and can be turned off without leaving a trace in git history.
+#
+# This branch had no CodeQL at all. `main` and `dapper` have analysed C# since it was added,
+# while the React app that renders every one of those API responses — and holds the token
+# handling and the routing — was never scanned.
+#
+# NOTE: if CodeQL "default setup" is enabled in Settings > Code security, disable it before
+# merging. GitHub rejects an advanced-setup workflow while default setup is active.
+
+on:
+  push:
+    branches: [ frontend ]
+  pull_request:
+    branches: [ frontend ]
+  schedule:
+    # Catch newly published queries against unchanged code.
+    - cron: '31 4 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: codeql-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  analyze:
+    name: Analyze JavaScript
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    permissions:
+      security-events: write   # required to upload the SARIF results
+      contents: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@4187e74d05793876e9989daffde9c3e66b4acd07 # v3
+        with:
+          languages: javascript-typescript
+          # Matches the C# analysis on main: a superset of the default security queries,
+          # which also catches the maintainability issues that become security issues later.
+          queries: security-and-quality
+
+      # No build step. CodeQL extracts JavaScript and TypeScript from source, and running
+      # the bundler first would hand it minified output to analyse instead.
+      - name: Perform CodeQL analysis
+        uses: github/codeql-action/analyze@4187e74d05793876e9989daffde9c3e66b4acd07 # v3
+        with:
+          category: '/language:javascript-typescript'
