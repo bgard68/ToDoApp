@@ -32,6 +32,12 @@ updates:
         update-types: ["version-update:semver-major"]
       - dependency-name: "MediatR"
         update-types: ["version-update:semver-major"]
+      - dependency-name: "FluentValidation*"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "Swashbuckle.AspNetCore"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "Microsoft.Data.SqlClient"
+        update-types: ["version-update:semver-major"]
 
   # GitHub Actions on the dapper branch. Dependabot only reads this file from the DEFAULT branch,
   # so every branch that needs updates must be declared here explicitly (review finding M6).
@@ -64,6 +70,12 @@ updates:
         update-types: ["version-update:semver-major"]
       - dependency-name: "MediatR"
         update-types: ["version-update:semver-major"]
+      - dependency-name: "FluentValidation*"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "Swashbuckle.AspNetCore"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "Microsoft.Data.SqlClient"
+        update-types: ["version-update:semver-major"]
 
   # The React SPA lives on the 'frontend' branch. Without these entries its dependency tree —
   # React, Vite, Vitest and everything transitive — was monitored by nothing at all (M6).
@@ -73,6 +85,22 @@ updates:
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 5
+    # Held pending the same planned refactor as the NuGet majors above. React 19
+    # changes rendering and effect semantics; jsdom 30 and jest-dom 8 change what
+    # the test environment does underneath those. Upgrading them piecemeal means
+    # debugging three things at once, so they move together or not at all.
+    #
+    # Majors only. Patches and minors still arrive, so a security fix inside the
+    # current major is not blocked.
+    ignore:
+      - dependency-name: "react"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "react-dom"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "jsdom"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@testing-library/jest-dom"
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: "github-actions"
     directory: "/"
