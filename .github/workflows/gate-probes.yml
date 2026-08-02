@@ -165,9 +165,21 @@ jobs:
           fi
           echo "ok  gitleaks rejects a planted secret - caught, as it must be"
 
-      - name: Build a deliberately outdated image
+      # The digest this repository ran on until it was bumped this morning, whose
+      # 28 fixable CRITICAL/HIGH findings are the reason these probes exist. A
+      # known-good subject: rebuilding on the current digest cleared every one of
+      # them, so they are demonstrably fixable rather than merely present.
+      #
+      # Deliberately NOT an end-of-life image such as alpine:3.14, which was the
+      # first attempt and made this probe fail. Nothing is fixed for a release
+      # nobody maintains, so `ignore-unfixed: true` skips its entire CVE list and
+      # the scan passes — reporting a broken gate that was working correctly.
+      - name: Build an image on the superseded base
         run: |
-          printf 'FROM alpine:3.14\nCMD ["true"]\n' > Dockerfile.probe
+          {
+            echo 'FROM mcr.microsoft.com/dotnet/aspnet:10.0@sha256:1fa23fc4872d95fd71c2833ebe65d7e84a43b2d51a31d119516852f13d9505a7'
+            echo 'CMD ["true"]'
+          } > Dockerfile.probe
           docker build -f Dockerfile.probe -t probe-outdated:ci . > /dev/null
 
       - name: Probe - Trivy scan of that image, expected to fail
