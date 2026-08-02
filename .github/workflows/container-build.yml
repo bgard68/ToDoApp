@@ -87,10 +87,12 @@ jobs:
           format: sarif
           output: trivy-api.sarif
           severity: CRITICAL,HIGH
-          # Report rather than block: base-image CVEs appear and are fixed upstream on
-          # Microsoft's schedule, not ours, so failing the build would just teach everyone to
-          # ignore a red X. Findings land in the Security tab alongside CodeQL.
-          exit-code: '0'
+          # `ignore-unfixed` already drops everything there is no patch for, so whatever
+          # survives it is fixable by definition — a base image that has moved on. Reporting
+          # those rather than failing is what let 28 of them accumulate unnoticed: they were
+          # not waiting on Microsoft, Microsoft had already shipped. Blocking is only alert
+          # fatigue when the alert is not actionable, and after `ignore-unfixed` it always is.
+          exit-code: '1'
           ignore-unfixed: true
 
       - name: Upload scan results
