@@ -30,7 +30,7 @@
     <!--
       NuGet's own vulnerability audit, failing the restore rather than reporting.
 
-      The frontend has run `npm audit --audit-level=high` since it was added; the API had no
+      The frontend has run npm audit at high severity since it was added; the API had no
       equivalent, so its dependency tree was the one part of this repository nothing checked.
       `all` rather than the default `direct`: a vulnerable package three levels down ships
       exactly the same code as one named in a csproj, and almost nothing here is a direct
