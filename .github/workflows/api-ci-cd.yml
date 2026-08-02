@@ -19,9 +19,11 @@ on:
       - '.github/workflows/api-ci-cd.yml'
   workflow_dispatch:
 
-# Required for OIDC (federated) login to Azure — no stored password/publish-profile.
+# Read the code, and nothing else. `id-token: write` is what mints the OIDC token
+# that logs in to Azure, and it is granted on the deploy job alone rather than here:
+# at workflow scope the build-and-test job carries it too, and that job runs on every
+# pull request. Least privilege costs one line and removes the question entirely.
 permissions:
-  id-token: write
   contents: read
 
 concurrency:
@@ -115,6 +117,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     environment: production
+
+    # The only job that talks to Azure, so the only one that can mint the token.
+    permissions:
+      id-token: write
+      contents: read
 
     steps:
       - name: Download build artifact
