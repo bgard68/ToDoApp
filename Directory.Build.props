@@ -26,5 +26,22 @@
       guarantee rather than a wall of unrelated failures.
     -->
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+
+    <!--
+      NuGet's own vulnerability audit, failing the restore rather than reporting.
+
+      The frontend has run `npm audit --audit-level=high` since it was added; the API had no
+      equivalent, so its dependency tree was the one part of this repository nothing checked.
+      `all` rather than the default `direct`: a vulnerable package three levels down ships
+      exactly the same code as one named in a csproj, and almost nothing here is a direct
+      reference to the thing that would actually be exploited.
+
+      NU1901-NU1904 are the four audit severities. Named explicitly rather than relying on
+      TreatWarningsAsErrors above, because restore-time NuGet warnings do not always inherit
+      it — the point of a gate is that it fails, and "probably fails" is not that.
+    -->
+    <NuGetAudit>true</NuGetAudit>
+    <NuGetAuditMode>all</NuGetAuditMode>
+    <WarningsAsErrors>$(WarningsAsErrors);NU1901;NU1902;NU1903;NU1904</WarningsAsErrors>
   </PropertyGroup>
 </Project>
