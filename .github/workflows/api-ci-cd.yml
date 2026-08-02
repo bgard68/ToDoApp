@@ -135,3 +135,74 @@ jobs:
         with:
           app-name: taskboard-06-api
           package: ./publish
+
+      # Proves the thing that was deployed actually runs. Unit and integration tests pass
+      # against a process this workflow starts itself; they cannot see a missing app setting,
+      # a Key Vault the managed identity can no longer read, or a DI graph that only fails
+      # once real configuration is bound. That gap is the whole reason to swap the API
+      # implementation on the `dapper` branch and find out at runtime.
+      #
+      # Deliberately needs no credentials. A login attempt with a password that is wrong on
+      # purpose still travels the entire path — routing, model binding, the user store, the
+      # hasher — and 401 is the proof it arrived. A 500 there is the failure this catches;
+      # a 200 would be considerably worse.
+      - name: Smoke test the deployed API
+        env:
+          API: https://taskboard-06-api-aehtbcg8eha6fyf8.centralus-01.azurewebsites.net
+        run: |
+          set -uo pipefail
+
+          # Wake first, assert second. Both halves of this stack sleep: the App Service plan
+          # is Free F1, and the SQL database is serverless with a 60-minute auto-pause, so a
+          # deploy after a quiet hour meets a cold app in front of a paused database. The
+          # keep-warm workflow pings "/" every ten minutes, which keeps the app up but never
+          # touches SQL — "/" answers without a query — so the database pauses anyway.
+          #
+          # Waking is therefore expected and is not a failure. Mixing the two would make the
+          # deploy fail for being idle, which is the fastest way to teach everyone to rerun a
+          # red job without reading it.
+          wake() {
+            what=$1; budget=$2; shift 2
+            deadline=$(( $(date +%s) + budget ))
+            while [ "$(date +%s)" -lt "$deadline" ]; do
+              code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 30 "$@") || code=000
+              case "$code" in
+                000|5*) echo "  $what waking (got $code)"; sleep 10 ;;
+                *)      echo "  $what awake ($code)"; return 0 ;;
+              esac
+            done
+            echo "::error::$what did not wake within ${budget}s"
+            return 1
+          }
+
+          echo "Waking the stack"
+          wake "app"      180 "$API/" || exit 1
+          # Any endpoint that reads the user store will do; the credentials are deliberately
+          # wrong, so this wakes SQL without needing a secret.
+          wake "database" 420 -X POST "$API/api/auth/login"                               -H 'Content-Type: application/json'                               -d '{"email":"smoke-test@invalid.local","password":"deliberately-wrong"}' || exit 1
+
+          # Awake now, so every answer below is the app's real opinion. No retries here on
+          # purpose: a wrong status code is the finding, not something to paper over.
+          fail=0
+          check() {
+            name=$1; want=$2; shift 2
+            actual=$(curl -s -o /dev/null -w '%{http_code}' --max-time 30 "$@") || actual=000
+            if [ "$actual" = "$want" ]; then
+              echo "ok   $name -> $actual"
+            else
+              echo "FAIL $name -> expected $want, got $actual"
+              fail=1
+            fi
+          }
+
+          echo "Checking"
+          # It booted and bound its configuration.
+          check "health"           200 "$API/"
+          # Authorisation is on. A 200 here would mean the API is open to anyone.
+          check "todos unauthed"   401 "$API/api/todos"
+          # The request reached the user store and was refused on the merits rather than
+          # falling over on the way. A 500 means the database or the DI graph is broken —
+          # which unit and integration tests cannot see, because they never bind real config.
+          check "login rejected"   401 -X POST "$API/api/auth/login"                                        -H 'Content-Type: application/json'                                        -d '{"email":"smoke-test@invalid.local","password":"deliberately-wrong"}'
+
+          exit $fail
