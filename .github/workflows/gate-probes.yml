@@ -235,6 +235,14 @@ jobs:
                   return False
               return any(f"steps.{sid}.outcome" in str(s.get("if", "")) for s in steps)
 
+          def lies_about_severity(step):
+              # trivy-action ignores `severity` when building SARIF - it scans every
+              # severity and says so in the log. A gate configured that way blocks on
+              # findings the configuration says it ignores, which is how this job spent
+              # a day looking like a CRITICAL/HIGH gate while failing on MEDIUMs.
+              with_ = step.get("with") or {}
+              return str(with_.get("format", "")) == "sarif" and "severity" in with_
+
           blocking, reporting, defused = [], [], []
           for s in trivy:
               name = s.get("name", "<unnamed>")
@@ -247,13 +255,20 @@ jobs:
               else:
                   defused.append(name)
 
+          mislabelled = [s.get("name", "<unnamed>") for s in trivy
+                         if s.get("name", "<unnamed>") in blocking and lies_about_severity(s)]
+
           for name in defused:
               print(f"::error title=Probe failed::step '{name}' scans with exit-code 1 but sets "
                     "continue-on-error and nothing checks its outcome, so the scan cannot fail the job.")
+          for name in mislabelled:
+              print(f"::error title=Probe failed::step '{name}' gates on a SARIF-format scan while "
+                    "declaring a severity filter, which trivy-action ignores for SARIF. The gate "
+                    "would block on severities the configuration says it excludes.")
           if not blocking:
               print(f"::error title=Probe failed::no Trivy step in {path} can fail the job. A scan "
                     "that reports without blocking is how 28 findings banked up behind a passing job.")
-          if defused or not blocking:
+          if defused or mislabelled or not blocking:
               sys.exit(1)
 
           for name in blocking:
