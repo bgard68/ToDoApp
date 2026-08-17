@@ -16,7 +16,15 @@ on:
   # push trigger keeps its filter: there is no reason to rebuild on a docs edit.
   pull_request:
     branches: [ main ]
+  # The `deploy` input keeps a manual dispatch meaning "ship it" (ticked by default) while letting
+  # automation rerun the checks without shipping: dependabot-lockfix.yml dispatches this workflow
+  # with deploy=false after force-regenerating lock files on a Dependabot branch.
   workflow_dispatch:
+    inputs:
+      deploy:
+        description: 'Deploy to the App Service after build'
+        type: boolean
+        default: true
 
 # Read the code, and nothing else. `id-token: write` is what mints the OIDC token
 # that logs in to Azure, and it is granted on the deploy job alone rather than here:
@@ -102,9 +110,11 @@ jobs:
           retention-days: 30
 
   # ---- Deploy ----
-  # Auto-deploys on push to main. A manual "Run workflow" (workflow_dispatch) deploys whichever
-  # branch is selected in the Actions UI — this is how the EF Core (main) and Dapper (dapper)
-  # branches are each shipped on demand to the same App Service. PRs build + test but never deploy.
+  # Auto-deploys on push to main. A manual "Run workflow" (workflow_dispatch) deploys the branch
+  # selected in the Actions UI — unless its `deploy` box is unticked, which turns the run into
+  # checks-only. dependabot-lockfix.yml relies on that: it re-dispatches this workflow on fixed-up
+  # Dependabot branches, and a CI rerun must never become a production deploy. PRs build + test
+  # but never deploy.
   #
   # Split into its own job gated on `environment:` so a manual deploy of a non-main branch can be
   # held for approval via the environment's protection rules, rather than shipping straight from
@@ -112,7 +122,7 @@ jobs:
   deploy:
     name: Deploy API
     needs: build-and-test
-    if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
+    if: github.ref == 'refs/heads/main' || (github.event_name == 'workflow_dispatch' && inputs.deploy)
     runs-on: ubuntu-latest
     timeout-minutes: 15
     environment: production
