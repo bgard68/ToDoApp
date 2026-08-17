@@ -1,0 +1,128 @@
+name: Fix Dependabot lockfiles
+
+# Dependabot regenerates packages.lock.json only for the projects whose .csproj it edits. Every
+# project that consumes the bumped package transitively keeps its old lock file, and locked-mode
+# restore (RestoreLockedMode, review finding M5) fails the whole solution with NU1004 — the pull
+# request is born red, and rebasing cannot help because nothing about the base branch is wrong.
+# Grouping (dependabot.yml, #126) collapsed five such pull requests into one; this workflow fixes
+# that one, automatically.
+#
+# Why this exact shape — each piece is load-bearing:
+#
+#   workflow_run   The one Dependabot-compatible trigger that still gets a write-scoped
+#                  GITHUB_TOKEN. push/pull_request runs whose actor is dependabot[bot] are forced
+#                  read-only and secretless, and could not push the fix. workflow_run fires only
+#                  from the DEFAULT branch's copy of this file — which is why there is no dapper
+#                  copy; this one serves Dependabot branches based on either branch.
+#
+#   re-dispatch    A push made with GITHUB_TOKEN triggers no workflows (loop protection built into
+#                  Actions), so the fixed commit would sit checkless and the merge would stay
+#                  blocked on "Expected" forever. workflow_dispatch and repository_dispatch are
+#                  the two documented exceptions, so the last step re-runs every required check on
+#                  the fixed commit via `gh workflow run`. Every required check already declares
+#                  workflow_dispatch.
+#
+#   deploy=false   api-ci-cd.yml treats a manual dispatch as permission to deploy. Re-running
+#                  checks on a Dependabot branch must never ship that branch, so the dispatch
+#                  passes deploy=false (main-based branches; the dapper copy has no deploy job at
+#                  all). A branch forked before the `deploy` input existed rejects the dispatch
+#                  with 422 "Unexpected inputs" — a loud failure instead of a deploy, which is the
+#                  right way round; it disappears as branches re-fork off the updated bases.
+#
+#   termination    If a re-dispatched run fails again for a real reason, this workflow fires
+#                  again, finds the lock files already consistent, and stops without dispatching.
+#                  No loop.
+#
+# Also dispatchable by hand: Actions -> Fix Dependabot lockfiles -> Run workflow -> branch name.
+
+on:
+  workflow_run:
+    workflows:
+      - "Build and Deploy taskboard-06-api"  # main's API CI    -> required check "Build & Test"
+      - "Build and Test (dapper)"            # dapper's API CI  -> required check "Build & Test"
+      - "CodeQL"                             #                  -> required check "Analyze C#"
+      - "Container build & scan"             #                  -> required check "Build API image & scan"
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: "dependabot/nuget/... branch to fix"
+        required: true
+        type: string
+
+permissions:
+  contents: write        # push the regenerated lock files to the Dependabot branch
+  actions: write         # re-dispatch the checks afterwards
+  pull-requests: read    # find the pull request's base branch to pick the right dispatch inputs
+
+concurrency:
+  group: dependabot-lockfix-${{ github.event.workflow_run.head_branch || inputs.branch }}
+  cancel-in-progress: false
+
+jobs:
+  fix:
+    # Auto mode reacts only to failed runs on Dependabot's nuget branches: npm (frontend) has a
+    # single root lock file that Dependabot regenerates correctly, and github-actions bumps have
+    # no lock file at all. Manual mode trusts the operator.
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'failure' &&
+       startsWith(github.event.workflow_run.head_branch, 'dependabot/nuget/'))
+    name: Regenerate lock files
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    env:
+      BRANCH: ${{ github.event.workflow_run.head_branch || inputs.branch }}
+
+    steps:
+      # persist-credentials is deliberately TRUE here, unlike every other workflow in this repo:
+      # this job exists to push, and the credential it persists is the job-scoped GITHUB_TOKEN.
+      - name: Checkout the Dependabot branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ env.BRANCH }}
+          persist-credentials: true
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6
+        with:
+          dotnet-version: '10.x'
+
+      # ContinuousIntegrationBuild (and with it RestoreLockedMode) is intentionally NOT set here:
+      # rewriting the lock files is the whole point.
+      - name: Regenerate every packages.lock.json
+        run: dotnet restore TodoApp.sln --force-evaluate
+
+      - name: Push the fix if anything changed
+        id: fix
+        run: |
+          if git diff --quiet -- '*packages.lock.json'; then
+            echo "::notice::Lock files already consistent with the project graph - nothing to fix."
+            echo "pushed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -- '*packages.lock.json'
+          git commit -m "ci: regenerate packages.lock.json for the projects Dependabot missed"
+          git push origin "HEAD:$BRANCH"
+          echo "pushed=true" >> "$GITHUB_OUTPUT"
+
+      - name: Re-run the required checks on the fixed commit
+        if: steps.fix.outputs.pushed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          base=$(gh pr list --head "$BRANCH" --state open --json baseRefName --jq '.[0].baseRefName // empty')
+          echo "Pull request base: ${base:-none found - assuming main}"
+          if [ "$base" = "dapper" ]; then
+            # dapper's api-ci-cd.yml has no deploy job and no inputs - dispatch it bare.
+            gh workflow run api-ci-cd.yml --ref "$BRANCH"
+          else
+            gh workflow run api-ci-cd.yml --ref "$BRANCH" -f deploy=false
+          fi
+          gh workflow run codeql.yml          --ref "$BRANCH"
+          gh workflow run container-build.yml --ref "$BRANCH"
+          gh workflow run secret-scan.yml     --ref "$BRANCH"
+          gh workflow run gate-probes.yml     --ref "$BRANCH"
