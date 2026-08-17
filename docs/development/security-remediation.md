@@ -286,12 +286,40 @@ been:
 - scans with Trivy and uploads SARIF to the Security tab — closing the container-scanning gap
   listed as still-open under M6.
 
-Trivy reports rather than blocks: base-image CVEs appear and are fixed on Microsoft's schedule,
-not ours, so failing the build would just train everyone to ignore a red X.
+**Trivy blocks, and has since 2026-08-02.** The original reasoning here was that base-image CVEs are
+fixed on Microsoft's schedule rather than ours, so failing the build would only train everyone to
+ignore a red X. That argument does not survive `ignore-unfixed: true`, which is set on the same step:
+Trivy drops everything without a patch, so whatever it still reports is fixable by definition. The 28
+findings sitting in the Security tab were not waiting on Microsoft — Microsoft had already shipped,
+and nothing was rebuilding to collect it.
+
+**The gate is CRITICAL/HIGH, and only became so on 2026-08-17.** `severity: CRITICAL,HIGH` had been
+set on a step using `format: sarif`, and `trivy-action` ignores `severity` when it builds SARIF — it
+logs `Building SARIF report with all severities` and scans everything. `exit-code: '1'` on that step
+therefore failed the job on any fixable finding at any severity, including LOW and MEDIUM, while
+every comment and input in the file said CRITICAL,HIGH. The gate now hangs off the table-format scan,
+where the severity input is honoured; SARIF is a separate, non-blocking step that still uploads every
+severity, so the Security tab keeps the full picture.
+
+**The scan no longer discards its own findings.** Failing the Trivy step skipped `upload-sarif`, so
+the Security tab received results only on runs that had nothing to report — the findings were thrown
+away in precisely the case they were collected for. A red run printed `exit code 1` and named no CVE.
+The scan now runs with `continue-on-error`, the upload runs under `always()`, and a later step raises
+the failure; blocking behaviour is unchanged. The table pass prints the CVEs and their fixed versions
+into the log, so a failing run says out loud what it wants bumped.
 
 **Now closed.** Base images are pinned by digest, not tag — a tag is mutable, so the same
 Dockerfile could otherwise produce a different image tomorrow. The refresh command is in a comment
 above each `FROM`, and the container-build workflow proves the digests still resolve.
+
+**Digest pins need refreshing on a schedule, and nothing does it automatically.** Pinning by digest
+buys reproducibility at the cost of not receiving base-image patches. On 2026-08-17 the pinned
+`aspnet:10.0` still carried **CVE-2026-62901** (HIGH, .NET denial of service) in runtime 10.0.10,
+patched by Microsoft in 10.0.11; the weekly scheduled scan went red and, because the container job is
+a required check, blocked all 22 open Dependabot pull requests behind a failure none of them caused.
+The refresh is the same maintenance done on 2026-08-02 — read the current digests with
+`docker buildx imagetools inspect mcr.microsoft.com/dotnet/aspnet:10.0 --format '{{.Manifest.Digest}}'`
+and update both `FROM` lines.
 
 ---
 

@@ -24,6 +24,11 @@ The ones that cost the most time — jump to the section for the full story:
 - **Drag-and-drop is dead on mobile** → [frontend notes](development/frontend-notes.md): the native HTML5 DnD API is touch-blind.
 - **Light mode is ignored in a phone browser** → [frontend notes](development/frontend-notes.md#darklight-mode--mobile-browsers-force-darken-a-light-only-page): mobile auto-dark force-darkens a light page; opt out with `color-scheme: only light` (the `only` keyword — `light dark` does not opt out).
 - **CodeQL flags a log line as "log forging"** → [Security scanning](#security-scanning-codeql-gitleaks--dependabot): user input (e.g. `Request.Path`) logged even via structured logging; strip `\r`/`\n` before logging.
+- **Every Dependabot PR is red and none of them caused it** → [Security scanning](#security-scanning-codeql-gitleaks--dependabot): a required check failing on `main` blocks every open PR behind it; fix `main` first, then re-run.
+- **A red CI gate names no CVE, just `exit code 1`** → [Security scanning](#security-scanning-codeql-gitleaks--dependabot): Trivy writing SARIF prints nothing readable, and failing the step skips the upload.
+- **`severity: CRITICAL,HIGH` on a Trivy step does nothing** → [Security scanning](#security-scanning-codeql-gitleaks--dependabot): `trivy-action` ignores `severity` when `format: sarif`, so the gate blocks on every severity.
+- **A NuGet bump fails with `NU1004` in CI but the PR looks fine** → [Security scanning](#security-scanning-codeql-gitleaks--dependabot): one bump changes several `packages.lock.json` files; Dependabot regenerates only one.
+- **`@dependabot rebase` says "already up-to-date" but the branch is behind** → [Security scanning](#security-scanning-codeql-gitleaks--dependabot): that means "my change still applies", not "contains your base commits" — use `@dependabot recreate`.
 
 ## Database (SQLite vs Azure SQL)
 
@@ -115,6 +120,55 @@ Making the repo public does **not** expose your Actions secrets — provided you
 - The rest of the security posture — `.gitignore` hardening, gitleaks (pre-commit + CI), Dependabot, and the
   GitHub-side protections (secret scanning, push protection, the `protect-main` ruleset) — lives in
   **[Secret hygiene](deployment/secret-hygiene.md)**.
+
+### A gate that works but can't report reads as noise (August 2026)
+
+Twenty-two Dependabot PRs sat blocked for two weeks. The instinct was that CI had become noisy and the
+old runs were clutter worth deleting. Deleting them would have destroyed the evidence and left two
+live HIGH vulnerabilities in place. Both gates were working correctly the entire time; neither could
+say what it had found.
+
+- **One red required check on `main` blocks every open PR.** `Build API image & scan` went red on a
+  scheduled scan, and because it is required, all 22 PRs queued behind a failure none of them caused
+  and none could clear. Check `main`'s own status before investigating any individual PR.
+- **A failing Trivy step skips `upload-sarif`.** SARIF is machine-readable, so a red run printed
+  `exit code 1` and named no CVE — and because the step failed, the findings never reached the
+  Security tab. The tab received results *only* on runs with nothing to report. Fix: scan with
+  `continue-on-error`, upload under `always()`, raise the failure in a later step, and add a
+  `format: table` pass so the log names the CVE and its fixed version.
+- **`trivy-action` ignores `severity` when `format: sarif`.** It logs `Building SARIF report with all
+  severities` and scans everything, so a gate built on that step blocks on LOW and MEDIUM while the
+  configuration claims CRITICAL,HIGH. Gate on the table scan, where the input is honoured, and keep
+  SARIF as a separate non-blocking reporter.
+- **Digest-pinned base images do not receive patches.** Pinning buys reproducibility and costs you
+  automatic security updates. `aspnet:10.0` carried **CVE-2026-62901** (HIGH, .NET DoS) in runtime
+  10.0.10 until the pins were refreshed to pick up 10.0.11.
+- **Re-running a workflow replays the old commit.** It does not pick up a fixed base branch — the
+  re-run used the same stale digests and the same old workflow file. Only a new head commit helps.
+
+### Dependabot cannot express "these must land together" (August 2026)
+
+Two failure modes where the PR is born red and no amount of rebasing helps, because nothing about the
+base branch is wrong:
+
+- **Lock files.** Bumping one package changes every `packages.lock.json` that resolves it
+  transitively — five of them here for a single `Microsoft.EntityFrameworkCore` bump. Dependabot
+  regenerates only the one belonging to the project it edited, so `dotnet restore --locked-mode`
+  fails with `NU1004`. Fix by hand: bump the family together, run
+  `dotnet restore TodoApp.sln --force-evaluate`, and commit every regenerated lock file.
+- **`codeql-action` sub-actions.** `init`, `analyze` and `upload-sarif` must run the same version, or
+  the job fails with `Loaded a configuration file for version X, but running version Y`. Dependabot
+  opens one PR per sub-action, so each one *creates* that mismatch. They have to move in one commit.
+
+Both are avoidable with `groups` in `dependabot.yml`, which makes Dependabot open one PR per group.
+
+- **`@dependabot rebase` can be a silent no-op.** It replies *"already up-to-date with <branch>"* when
+  its change still applies cleanly — which is not the same as containing your base commits. Verify
+  with `git merge-base --is-ancestor <fix-commit> <pr-head>` rather than taking the reply at face
+  value; use `@dependabot recreate` to actually rebuild from the current base.
+- **Check results belong to a commit, not a branch.** Merging a fix into the base does not turn a
+  PR's stale red X green, and the PR can keep showing a check from days earlier. That stale check is
+  also how a PR can look one green tick from mergeable while its branch would *revert* a security fix.
 
 ## Config / secrets
 

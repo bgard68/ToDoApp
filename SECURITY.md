@@ -76,8 +76,21 @@ install from a committed lock file, so what deploys is the tree that was
 reviewed. The deploy authenticates to Azure with OIDC — there is no stored
 publish profile or password.
 
+The container scan blocks on **fixable CRITICAL and HIGH** findings. `ignore-unfixed`
+drops anything without a patch, so what remains is actionable by definition.
+Lower severities are still uploaded to the Security tab, where they can be seen
+coming before they are worth failing a build over.
+
 A separate job, `gate-probes.yml`, shows each of those gates something it must
 reject and fails if any of them does not. That exists because a check which
 cannot fail looks exactly like a check with nothing to report: the container
 scan ran for its entire life with `exit-code: 0`, reporting findings faithfully
 and blocking nothing, until 28 had accumulated behind a passing job.
+
+That probe is why the severity scope above is trustworthy. It parses
+`container-build.yml` rather than grepping it, and fails if no Trivy step can
+actually fail the job — including the two ways that are easy to miss:
+`continue-on-error` with nothing checking the step's outcome, and a gate built on
+a SARIF-format scan, where `trivy-action` silently ignores the severity filter
+and blocks on everything. The second was a real defect, found on 2026-08-17 and
+fixed the same day; the probe now refuses it.
