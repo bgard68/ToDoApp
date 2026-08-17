@@ -15,7 +15,7 @@
     <!-- Dapper data access. Providers: Microsoft.Data.Sqlite (local/tests) and
          Microsoft.Data.SqlClient (Azure SQL), selected at runtime by Database:Provider. -->
     <PackageReference Include="Dapper" Version="2.1.79" />
-    <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.10" />
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.11" />
     <PackageReference Include="Microsoft.Data.SqlClient" Version="6.1.6" />
     <PackageReference Include="System.IdentityModel.Tokens.Jwt" Version="8.22.0" />
     <PackageReference Include="Google.Apis.Auth" Version="1.75.0" />
