@@ -84,11 +84,27 @@ jobs:
 
       - name: Build And Deploy
         id: builddeploy
-        # Skip for PRs from forks: secrets are not exposed to them, so the deploy would fail
-        # confusingly rather than meaningfully. Pushes and same-repo PRs still deploy.
+        # Skip where the deployment token is not available, so the deploy fails meaningfully
+        # rather than confusingly. Pushes and ordinary same-repo PRs still deploy.
+        #
+        # Two cases, and the second was missed until 2026-08-17:
+        #  - Forks: secrets are never exposed to them.
+        #  - Dependabot: its pull requests run with a restricted token and no access to repository
+        #    secrets, whatever branch they sit on. These branches are in this repository, so the
+        #    fork test above passes and the step ran anyway, hitting "deployment_token was not
+        #    provided". Because this job is a required check, that made every Dependabot pull
+        #    request on this branch permanently unmergeable.
+        #
+        # Keyed on the pull request author rather than github.actor: re-running a Dependabot run by
+        # hand makes the actor a human, while the token stays restricted.
+        #
+        # Everything that gates quality still runs on those pull requests - npm ci, the audit, the
+        # tests, the CSP check, the docs drift check. Only the upload is skipped, which could not
+        # have succeeded.
         if: >-
           github.event_name != 'pull_request' ||
-          github.event.pull_request.head.repo.full_name == github.repository
+          (github.event.pull_request.head.repo.full_name == github.repository &&
+           github.event.pull_request.user.login != 'dependabot[bot]')
         uses: Azure/static-web-apps-deploy@1a947af9992250f3bc2e68ad0754c0b0c11566c9 # v1
         # Vite env vars are BUILD-TIME — stored as GitHub repository Variables.
         # NOTE: VITE_API_URL must match the connect-src origin in staticwebapp.config.json,
