@@ -184,23 +184,98 @@ jobs:
       # with exit-code 0 for its entire life — reporting faithfully, blocking
       # nothing, while 28 findings banked up behind a passing job. Setting it back
       # is a one-character edit, and this is what refuses it.
+      #
+      # It used to grep the file for `exit-code: '0'` and fail on a hit. That read
+      # the whole file as one setting, which stopped being true once the job gained
+      # a second Trivy step that prints the findings as a table and deliberately
+      # does not block. The grep cannot tell a reporting step from a gate that has
+      # been switched off, and the honest fix is a probe that knows the difference
+      # rather than a reporting step contorted to slip past a regex.
+      #
+      # Parsing the workflow also closes a hole the grep never covered. Blocking
+      # needs two things — the scan exits non-zero, and nothing swallows that exit
+      # — so `continue-on-error: true` with no step keyed on the scan's outcome
+      # leaves a job that matches `exit-code: '1'` and still cannot fail. That is
+      # the same defect as exit-code 0 wearing different clothes.
       - name: Probe - the container scan is configured to block
         run: |
           set -uo pipefail
-          fail=0
-          for f in .github/workflows/container-build.yml; do
-            [ -f "$f" ] || continue
-            if grep -qE "exit-code:\s*'0'" "$f"; then
-              echo "::error title=Probe failed::$f runs Trivy with exit-code 0, so the scan reports without blocking."
-              fail=1
-            elif grep -qE "exit-code:\s*'1'" "$f"; then
-              echo "ok  $f scans with exit-code 1 - blocking, as it must be"
-            else
-              echo "::error title=Probe inconclusive::no exit-code found in $f; the default is 0, which does not block."
-              fail=1
-            fi
-          done
-          exit $fail
+          python3 -c 'import yaml' 2>/dev/null || {
+            echo "::error title=Probe setup failed::PyYAML unavailable, cannot parse the workflow."
+            exit 1
+          }
+          python3 - <<'PY'
+          import sys, yaml
+
+          path = ".github/workflows/container-build.yml"
+          try:
+              # Explicit encoding: the workflow comments carry em dashes, and a
+              # runner with a non-UTF-8 locale would read a decode error as a gate
+              # failure. Setup problems must not look like the gate being off.
+              with open(path, encoding="utf-8") as fh:
+                  wf = yaml.safe_load(fh)
+              steps = [s for job in wf["jobs"].values() for s in job["steps"]]
+          except Exception as exc:                      # noqa: BLE001 - setup, not a gate failure
+              print(f"::error title=Probe setup failed::could not parse {path}: {exc}")
+              sys.exit(1)
+
+          trivy = [s for s in steps if "trivy-action" in str(s.get("uses", ""))]
+          if not trivy:
+              print(f"::error title=Probe inconclusive::no Trivy step found in {path}.")
+              sys.exit(1)
+
+          def exit_code(step):
+              # The action defaults to 0, which does not block.
+              return str((step.get("with") or {}).get("exit-code", "0"))
+
+          def compensated(step):
+              # continue-on-error is only survivable if a later step fails on the outcome.
+              sid = step.get("id")
+              if not sid:
+                  return False
+              return any(f"steps.{sid}.outcome" in str(s.get("if", "")) for s in steps)
+
+          def lies_about_severity(step):
+              # trivy-action ignores `severity` when building SARIF - it scans every
+              # severity and says so in the log. A gate configured that way blocks on
+              # findings the configuration says it ignores, which is how this job spent
+              # a day looking like a CRITICAL/HIGH gate while failing on MEDIUMs.
+              with_ = step.get("with") or {}
+              return str(with_.get("format", "")) == "sarif" and "severity" in with_
+
+          blocking, reporting, defused = [], [], []
+          for s in trivy:
+              name = s.get("name", "<unnamed>")
+              if exit_code(s) != "1":
+                  reporting.append(name)
+              elif not s.get("continue-on-error"):
+                  blocking.append(name)
+              elif compensated(s):
+                  blocking.append(name)
+              else:
+                  defused.append(name)
+
+          mislabelled = [s.get("name", "<unnamed>") for s in trivy
+                         if s.get("name", "<unnamed>") in blocking and lies_about_severity(s)]
+
+          for name in defused:
+              print(f"::error title=Probe failed::step '{name}' scans with exit-code 1 but sets "
+                    "continue-on-error and nothing checks its outcome, so the scan cannot fail the job.")
+          for name in mislabelled:
+              print(f"::error title=Probe failed::step '{name}' gates on a SARIF-format scan while "
+                    "declaring a severity filter, which trivy-action ignores for SARIF. The gate "
+                    "would block on severities the configuration says it excludes.")
+          if not blocking:
+              print(f"::error title=Probe failed::no Trivy step in {path} can fail the job. A scan "
+                    "that reports without blocking is how 28 findings banked up behind a passing job.")
+          if defused or mislabelled or not blocking:
+              sys.exit(1)
+
+          for name in blocking:
+              print(f"ok  '{name}' can fail the job - blocking, as it must be")
+          for name in reporting:
+              print(f"note  '{name}' reports without blocking - fine, it is not the gate")
+          PY
 
       - name: All probes caught what they must
         run: echo "GATE PROBES PASSED - every gate rejected what it was shown."
