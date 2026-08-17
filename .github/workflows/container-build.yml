@@ -79,23 +79,72 @@ jobs:
             exit 1
           fi
 
-      - name: Scan image for vulnerabilities
+      # This step is both the report and the gate, and it is table-format for a reason
+      # that cost a day to find.
+      #
+      # The gate used to hang off a `format: sarif` step carrying `severity: CRITICAL,HIGH`.
+      # trivy-action ignores `severity` when it builds SARIF — it logs "Building SARIF
+      # report with all severities" and scans everything, so that input never applied.
+      # `exit-code: '1'` on that step therefore failed the job on any fixable finding at
+      # any severity, including LOW and MEDIUM, while every comment and input here said
+      # CRITICAL,HIGH. The configuration and the behaviour disagreed, and the
+      # configuration is the one that was reviewed.
+      #
+      # Gating on the table scan makes the severity input real. `ignore-unfixed` already
+      # drops everything there is no patch for, so whatever survives is fixable by
+      # definition — a base image that has moved on. Reporting those rather than failing
+      # is what let 28 of them accumulate on main unnoticed: they were not waiting on
+      # Microsoft, Microsoft had already shipped. Blocking is only alert fatigue when the
+      # alert is not actionable, and after it always is.
+      #
+      # Table format also means a red run names the CVEs in its own log. The SARIF step
+      # below prints nothing a human can read, which is why a failing run used to end in
+      # a bare `exit code 1` and the only way to learn what to bump was to rebuild the
+      # image locally — exactly the friction that gets a red gate dismissed rather than
+      # fixed.
+      #
+      # `continue-on-error` with the failure raised further down, so that a red scan
+      # still reaches the upload step. Failing here skipped it, and the Security tab
+      # received the SARIF only on runs that had nothing to report — the findings were
+      # discarded in precisely the case they were collected for.
+      - name: Scan image and report findings
+        id: scan
+        continue-on-error: true
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: todoapp-api:ci
+          format: table
+          severity: CRITICAL,HIGH
+          exit-code: '1'
+          ignore-unfixed: true
+
+      # Deliberately every severity, and deliberately not the gate: the Security tab is
+      # the place to see a MEDIUM coming before it is worth blocking on. `exit-code: '0'`
+      # because this step reports, and the step above decides.
+      - name: Build SARIF for the Security tab
+        if: always()
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           image-ref: todoapp-api:ci
           format: sarif
           output: trivy-api.sarif
-          severity: CRITICAL,HIGH
-          # `ignore-unfixed` already drops everything there is no patch for, so whatever
-          # survives it is fixable by definition — a base image that has moved on. Reporting
-          # those rather than failing is what let 28 of them accumulate on main unnoticed:
-          # they were not waiting on Microsoft, Microsoft had already shipped. Blocking is
-          # only alert fatigue when the alert is not actionable, and after it always is.
-          exit-code: '1'
+          exit-code: '0'
           ignore-unfixed: true
 
+      # `always()` so the upload also happens on the failing runs. Guarded on the file
+      # existing: if the scan died before writing the SARIF, upload-sarif would fail with
+      # a missing-file error that masks the real one.
       - name: Upload scan results
+        if: always() && hashFiles('trivy-api.sarif') != ''
         uses: github/codeql-action/upload-sarif@f205ea1c3313d32999d8d6a48b4f6530d4437b38 # v4
         with:
           sarif_file: trivy-api.sarif
           category: trivy-container
+
+      # The gate itself. Kept last so a red X here means "fixable CVEs in the image" and
+      # the SARIF is already in the Security tab to say which.
+      - name: Fail on fixable CRITICAL/HIGH findings
+        if: steps.scan.outcome == 'failure'
+        run: |
+          echo "::error title=Fixable CVEs in the API image::Trivy found CRITICAL/HIGH vulnerabilities that have a patch available. See the table in 'Scan image and report findings' above, and the Security tab (category trivy-container). Usually the fix is to refresh the base image digests in Dockerfile.api."
+          exit 1
