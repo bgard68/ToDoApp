@@ -1,6 +1,26 @@
 # Dependabot version updates - keeps GitHub Actions and NuGet dependencies current.
 # Alerts must also be enabled in the repo Settings for these to surface.
 # https://docs.github.com/code-security/dependabot/dependabot-version-updates
+#
+# Every ecosystem below is GROUPED, so related updates arrive as one pull request rather than one
+# per package. That is not tidiness — ungrouped, two classes of update are born unmergeable:
+#
+#   1. github-actions: codeql-action's init, analyze and upload-sarif must run the SAME version, or
+#      the job fails with "Loaded a configuration file for version X, but running version Y". One
+#      pull request per sub-action means each one creates that mismatch on its own branch, so none
+#      of them can go green alone and no rebase can help. On 2026-08-17 there were eight such pull
+#      requests open across three branches, all permanently red.
+#
+#   2. nuget: one package bump changes every packages.lock.json that resolves it transitively -
+#      five of them for a single Microsoft.EntityFrameworkCore bump. Dependabot regenerates only
+#      the lock file of the project it edited, so `dotnet restore --locked-mode` fails with NU1004.
+#      Grouping does not fully solve this (a bump can still leave a dependent project's lock file
+#      stale, needing `dotnet restore TodoApp.sln --force-evaluate`), but it turns five broken pull
+#      requests into one that needs fixing once.
+#
+# Actions are grouped across ALL update types, because the sub-action version constraint holds
+# regardless of whether a bump is major, minor or patch. NuGet and npm group minor and patch only,
+# so a major still arrives on its own and gets read properly.
 version: 2
 updates:
   # GitHub Actions used in .github/workflows (actions/checkout, azure/login, gitleaks, etc.)
@@ -9,6 +29,9 @@ updates:
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 5
+    groups:
+      github-actions:
+        patterns: ["*"]
 
   # NuGet packages across the solution (TodoApp.sln at the repo root)
   - package-ecosystem: "nuget"
@@ -16,6 +39,10 @@ updates:
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 5
+    groups:
+      nuget:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
     # Held at the last permissively licensed major, pending a planned refactor.
     #
     # FluentAssertions 8 moved to the Xceed Community License and MediatR 13 to a
@@ -47,6 +74,9 @@ updates:
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 5
+    groups:
+      github-actions:
+        patterns: ["*"]
 
   - package-ecosystem: "nuget"
     directory: "/"
@@ -54,6 +84,10 @@ updates:
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 5
+    groups:
+      nuget:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
     # Held at the last permissively licensed major, pending a planned refactor.
     #
     # FluentAssertions 8 moved to the Xceed Community License and MediatR 13 to a
@@ -85,6 +119,10 @@ updates:
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 5
+    groups:
+      npm:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
     # Held pending the same planned refactor as the NuGet majors above. React 19
     # changes rendering and effect semantics; jsdom 30 and jest-dom 8 change what
     # the test environment does underneath those. Upgrading them piecemeal means
@@ -108,3 +146,6 @@ updates:
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 5
+    groups:
+      github-actions:
+        patterns: ["*"]
