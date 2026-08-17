@@ -136,6 +136,111 @@ makes that guarantee explicit rather than incidental.
 
 ---
 
-_See also: [Testing guide](testing.md) · [CI/CD pipeline testing](../deployment/pipeline.md)._
+## 5. Worked example — the stuck Dependabot queue (August 2026)
+
+Twenty-two Dependabot pull requests were open and red. None of them was individually wrong; they were
+blocked by four separate causes, none of which a rebase could fix. It is worth reading as a
+troubleshooting order, because the first check would have saved most of the time.
+
+### Check the base branch before any individual PR
+
+`Build API image & scan` is a required check, and it had gone red on `main` on a scheduled scan. A
+required check failing on the base branch blocks **every** open pull request behind it. Nineteen of
+the twenty-two were queued behind a failure none of them caused and none could clear.
+
+```bash
+gh run list --workflow container-build.yml --branch main --limit 5
+```
+
+The cause was **CVE-2026-62901** (HIGH, .NET denial of service) in runtime 10.0.10, inside the
+digest-pinned `aspnet:10.0` base image. Microsoft had already published 10.0.11; nothing was
+rebuilding to collect it. Digest pinning buys reproducibility and costs automatic patches, so the
+pins need refreshing as routine maintenance:
+
+```bash
+docker buildx imagetools inspect mcr.microsoft.com/dotnet/sdk:10.0 --format '{{.Manifest.Digest}}'
+docker buildx imagetools inspect mcr.microsoft.com/dotnet/aspnet:10.0 --format '{{.Manifest.Digest}}'
+```
+
+> **Re-running the workflow does not help.** A re-run replays the original commit — same stale
+> digests, same old workflow file. Only a new head commit picks up a fixed base.
+
+### `NU1004` — one bump, several lock files
+
+```
+error NU1004: The project references todoapp.application whose dependencies has changed.
+The packages lock file is inconsistent with the project dependencies
+so restore can't be run in locked mode.
+```
+
+Bumping `Microsoft.EntityFrameworkCore` in one project changes **every** `packages.lock.json` that
+resolves it transitively — five of them here. Dependabot regenerates only the lock file belonging to
+the project it edited, so the pull request is born failing and stays that way. Nothing about the base
+branch is wrong, so rebasing changes nothing.
+
+Fix by hand, moving the whole family in one commit:
+
+```bash
+dotnet restore TodoApp.sln --force-evaluate   # regenerate every lock file
+dotnet restore TodoApp.sln --locked-mode      # prove the CI check now passes
+dotnet build TodoApp.sln -c Release && dotnet test TodoApp.sln -c Release
+```
+
+### `codeql-action` sub-actions must move together
+
+```
+Loaded a configuration file for version '4.37.6', but running version '4.37.4'
+```
+
+`init`, `analyze` and `upload-sarif` must run the same version. Dependabot opens one pull request per
+sub-action, so each one *creates* that mismatch on its own branch — whichever lands first breaks the
+build. They cannot go green separately and have to move in one commit. Verify the tag SHA rather than
+trusting the PR title; those said 4.37.6 while 4.37.7 was current.
+
+### The npm side — a real advisory, held open by nothing rebuilding
+
+`deploy.yml` gates the SPA on `npm audit --audit-level=high`, and it had been red since 8 August on:
+
+| Severity | Package | Advisory | Path |
+| -------- | ------- | -------- | ---- |
+| **High** | `nanoid` 3.3.16 | [GHSA-2v37-7h3g-55p8](https://github.com/advisories/GHSA-2v37-7h3g-55p8) — custom generators can loop indefinitely when size is zero | transitive via `postcss` 8.5.25 |
+
+Patched in **3.3.18**, which `postcss`'s `^3.3.16` range already accepts — so it is a lock-file-only
+change with no `package.json` edit. Same shape as the base image: the fix existed, nothing had
+rebuilt to collect it.
+
+> **Watch what `npm audit fix` touches.** It made the right `nanoid` change, but the npm in use
+> (11.x on node 24) *also* stripped `libc` fields from six optional platform-specific packages —
+> metadata selecting between glibc and musl builds of native binaries. Unrelated churn inside a
+> security fix is how a platform-resolution bug arrives unnoticed. Check the diff; if it reaches
+> beyond the advisory, patch the single entry by hand and verify the integrity hash against
+> `registry.npmjs.org`.
+
+### Two Dependabot behaviours worth knowing
+
+- **`@dependabot rebase` can be a silent no-op.** It replies *"already up-to-date with `<branch>`"*
+  when its change still applies cleanly — which is **not** the same as containing your base commits.
+  Verify rather than believe it, and use `@dependabot recreate` to rebuild from the current base:
+
+  ```bash
+  git fetch origin "+refs/pull/<n>/head:refs/remotes/pr/<n>"
+  git merge-base --is-ancestor <fix-commit> pr/<n> && echo "has the fix" || echo "does NOT"
+  ```
+
+- **Check results belong to a commit, not a branch.** Merging a fix into the base does not turn a
+  pull request's stale red X green. Here that mattered: two branches still carried the vulnerable
+  `nanoid` 3.3.16 while displaying checks from a week earlier, so merging either would have
+  **reverted** the security fix.
+
+### The durable fix
+
+Both structural problems — lock files and the `codeql-action` trio — recur every time those packages
+update. `groups` in `dependabot.yml` makes Dependabot open one pull request per group rather than one
+per package, so related updates move together by default.
+
+---
+
+_See also: [Testing guide](testing.md) · [CI/CD pipeline testing](../deployment/pipeline.md) ·
+[Lessons learned](../lessons.md#security-scanning-codeql-gitleaks--dependabot)._
 
 > **← Back to the main [README](../../README.md).**

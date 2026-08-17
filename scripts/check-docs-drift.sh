@@ -102,6 +102,8 @@ check_absent "double-submit companion cookie" \
   "CSRF uses a double-submit cookie (replaced: the SPA cannot read an API-domain cookie)" || drift=1
 check_absent "refresh token is persisted so a page reload" \
   "the refresh token is persisted client-side (it is an httpOnly cookie)" || drift=1
+check_absent "reports rather than blocks" \
+  "the container scan reports without blocking (it fails the build on fixable CRITICAL/HIGH)" || drift=1
 [ "$drift" -eq 0 ] && ok "no known-false claims present"
 
 # ---- 3. Controls the docs promise must actually be wired ----------------------
