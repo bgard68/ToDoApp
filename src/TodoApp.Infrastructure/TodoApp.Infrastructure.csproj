@@ -19,7 +19,7 @@
       <PrivateAssets>all</PrivateAssets>
     </PackageReference>
     <PackageReference Include="System.IdentityModel.Tokens.Jwt" Version="8.22.0" />
-    <PackageReference Include="Google.Apis.Auth" Version="1.75.0" />
+    <PackageReference Include="Google.Apis.Auth" Version="1.76.0" />
     <!-- Security override: pin the patched native SQLite (CVE-2025-6965 / NU1903).
          Overrides the vulnerable transitive SQLitePCLRaw.lib.e_sqlite3 2.1.11; the managed
          core stays at 2.1.11 (compatible with EF Core 10). Remove once Microsoft.Data.Sqlite
