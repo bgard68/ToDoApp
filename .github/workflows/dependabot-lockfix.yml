@@ -15,22 +15,16 @@ name: Fix Dependabot lockfiles
 #                  from the DEFAULT branch's copy of this file — which is why there is no dapper
 #                  copy; this one serves Dependabot branches based on either branch.
 #
-#   re-dispatch    A push made with GITHUB_TOKEN triggers no workflows (loop protection built into
-#                  Actions), so the fixed commit would sit checkless and the merge would stay
-#                  blocked on "Expected" forever. workflow_dispatch and repository_dispatch are
-#                  the two documented exceptions, so the last step re-runs every required check on
-#                  the fixed commit via `gh workflow run`. Every required check already declares
-#                  workflow_dispatch.
+#   approval       A GITHUB_TOKEN push normally triggers no workflows, but GitHub explicitly makes
+#                  an exception for a pull request's `synchronize` event: every matching workflow
+#                  is created in the `action_required` state. Approving those runs starts the exact
+#                  branch-specific PR checks that GitHub selected. Manually dispatching a hard-coded
+#                  subset is insufficient because omitted required checks remain "Expected" on the
+#                  new commit, and a dispatch of the API workflow also risks entering its deploy path.
 #
-#   deploy=false   api-ci-cd.yml treats a manual dispatch as permission to deploy. Re-running
-#                  checks on a Dependabot branch must never ship that branch, so the dispatch
-#                  passes deploy=false (main-based branches; the dapper copy has no deploy job at
-#                  all). A branch forked before the `deploy` input existed rejects the dispatch
-#                  with 422 "Unexpected inputs" — a loud failure instead of a deploy, which is the
-#                  right way round; it disappears as branches re-fork off the updated bases.
-#
-#   termination    If a re-dispatched run fails again for a real reason, this workflow fires
-#                  again, finds the lock files already consistent, and stops without dispatching.
+#   termination    If an approved run fails again for a real reason, this workflow fires
+#                  again, finds the lock files already consistent, and stops without another push
+#                  or approval.
 #                  No loop.
 #
 # Also dispatchable by hand: Actions -> Fix Dependabot lockfiles -> Run workflow -> branch name.
@@ -52,8 +46,7 @@ on:
 
 permissions:
   contents: write        # push the regenerated lock files to the Dependabot branch
-  actions: write         # re-dispatch the checks afterwards
-  pull-requests: read    # find the pull request's base branch to pick the right dispatch inputs
+  actions: write         # approve the PR checks GitHub creates after the bot push
 
 concurrency:
   group: dependabot-lockfix-${{ github.event.workflow_run.head_branch || inputs.branch }}
@@ -109,20 +102,51 @@ jobs:
           git push origin "HEAD:$BRANCH"
           echo "pushed=true" >> "$GITHUB_OUTPUT"
 
-      - name: Re-run the required checks on the fixed commit
+      - name: Approve the pull-request checks on the fixed commit
         if: steps.fix.outputs.pushed == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          base=$(gh pr list --head "$BRANCH" --state open --json baseRefName --jq '.[0].baseRefName // empty')
-          echo "Pull request base: ${base:-none found - assuming main}"
-          if [ "$base" = "dapper" ]; then
-            # dapper's api-ci-cd.yml has no deploy job and no inputs - dispatch it bare.
-            gh workflow run api-ci-cd.yml --ref "$BRANCH"
-          else
-            gh workflow run api-ci-cd.yml --ref "$BRANCH" -f deploy=false
+          head=$(git rev-parse HEAD)
+          approved=0
+          idle_polls=0
+
+          # The synchronize event and its approval-required runs are created asynchronously.
+          # Approve every PR run for this exact commit, then wait for three empty polls so a
+          # slower workflow is not left behind. The one-minute ceiling keeps a platform failure
+          # loud instead of hanging this repair job indefinitely.
+          for ((attempt = 0; attempt < 20; attempt++)); do
+            runs=$(
+              gh api \
+                -H "X-GitHub-Api-Version: 2022-11-28" \
+                "repos/$GITHUB_REPOSITORY/actions/runs?head_sha=$head&event=pull_request&per_page=100" \
+                --jq '.workflow_runs[] | select(.conclusion == "action_required") | .id'
+            )
+
+            if [ -z "$runs" ]; then
+              if [ "$approved" -gt 0 ]; then
+                idle_polls=$((idle_polls + 1))
+                if [ "$idle_polls" -ge 3 ]; then
+                  break
+                fi
+              fi
+            else
+              idle_polls=0
+              while read -r run_id; do
+                gh api --method POST \
+                  -H "X-GitHub-Api-Version: 2022-11-28" \
+                  "repos/$GITHUB_REPOSITORY/actions/runs/$run_id/approve"
+                approved=$((approved + 1))
+              done <<< "$runs"
+            fi
+
+            sleep 3
+          done
+
+          if [ "$approved" -eq 0 ]; then
+            echo "::error::No approval-required pull-request runs appeared for $head."
+            exit 1
           fi
-          gh workflow run codeql.yml          --ref "$BRANCH"
-          gh workflow run container-build.yml --ref "$BRANCH"
-          gh workflow run secret-scan.yml     --ref "$BRANCH"
-          gh workflow run gate-probes.yml     --ref "$BRANCH"
+
+          echo "::notice::Approved $approved pull-request workflow run(s) for $head."
+
