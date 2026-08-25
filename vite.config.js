@@ -19,5 +19,12 @@ export default defineConfig({
     globals: true,
     setupFiles: './src/test/setup.js',
     css: false,
+    coverage: {
+      provider: 'v8',
+      reporter: ['text', 'json-summary', 'json'],
+      include: ['src/**/*.{js,jsx}'],
+      // main.jsx only mounts the app into the DOM, and setup.js is the harness itself.
+      exclude: ['src/main.jsx', 'src/test/**', 'src/**/*.test.{js,jsx}'],
+    },
   },
 });

@@ -19,6 +19,7 @@ PublishProfiles/
 TestResults/
 [Tt]est[Rr]esult*/
 *.trx
+coverage/
 coverage*.json
 coverage*.xml
 coverage*.info

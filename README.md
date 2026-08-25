@@ -58,16 +58,38 @@ injected by the deploy workflow.
 | `npm run build` | Production build to `dist/` |
 | `npm run preview` | Serve the built `dist/` locally |
 | `npm test` | Run the Vitest suite once (CI mode) |
+| `npm run test:coverage` | Run the suite and print a coverage report |
 | `npm run test:watch` | Vitest in watch mode |
 
 ## Testing
 
 ```bash
-npm test
+npm test              # run once
+npm run test:coverage # run with a coverage report
 ```
 
 Vitest reuses Vite's transform pipeline, so `.jsx` tests compile exactly like the app. Tests live next
 to the code they cover as `*.test.{js,jsx}` under `src/`.
+
+### Coverage
+
+`vite.config.js` configures the v8 provider over `src/**/*.{js,jsx}`, excluding `main.jsx` (which only
+mounts the app) and the test files themselves.
+
+Every line and every function under `src/` is covered. Thirteen branches are not, and all of them are
+guards that cannot be taken as the code stands — a ref checked for null on the element the same render
+creates, `WHEEL_RADIUS ? … : 0` on a non-zero constant, a `formatDate` null check behind a caller that
+already tested the value. They are worth keeping as guards and are not worth contorting a test to
+reach, so the branch figure sits at 96.51% rather than 100%.
+
+Two conventions the suite depends on, both because jsdom is not a browser:
+
+- **Pointer coordinates.** jsdom has no `PointerEvent`, and `fireEvent.pointerDown` silently drops
+  `clientX`/`clientY` on its fallback event — which feeds `NaN` into the colour wheel's maths and makes
+  a broken assertion look like a passing one. `ColorPicker.test.jsx` dispatches a `MouseEvent` named
+  `pointerdown` instead, which carries the coordinates and still reaches React's handler.
+- **Layout.** Nothing has a size in jsdom, so components that measure themselves (the colour wheel, the
+  Google button) get an explicit `getBoundingClientRect` in the tests that care.
 
 ## Deployment
 

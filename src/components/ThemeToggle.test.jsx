@@ -22,4 +22,47 @@ describe('<ThemeToggle />', () => {
     expect(document.documentElement.getAttribute('data-theme')).toBe('light');
     expect(localStorage.getItem('todo.theme')).toBe('light');
   });
+
+  it('starts dark when that was the stored choice', () => {
+    localStorage.setItem('todo.theme', 'dark');
+
+    render(<ThemeToggle />);
+
+    expect(screen.getByRole('button', { name: /switch to light mode/i })).toBeInTheDocument();
+  });
+
+  it('starts light when that was the stored choice, whatever the OS says', () => {
+    localStorage.setItem('todo.theme', 'light');
+    window.matchMedia = () => ({ matches: true, addEventListener() {}, removeEventListener() {} });
+
+    render(<ThemeToggle />);
+
+    expect(screen.getByRole('button', { name: /switch to dark mode/i })).toBeInTheDocument();
+  });
+
+  it('follows the OS preference until a choice is made', () => {
+    window.matchMedia = () => ({ matches: true, addEventListener() {}, removeEventListener() {} });
+
+    render(<ThemeToggle />);
+
+    expect(screen.getByRole('button', { name: /switch to light mode/i })).toBeInTheDocument();
+  });
+
+  it('treats an unavailable matchMedia as light rather than failing', () => {
+    window.matchMedia = () => { throw new Error('unsupported'); };
+
+    render(<ThemeToggle />);
+
+    expect(screen.getByRole('button', { name: /switch to dark mode/i })).toBeInTheDocument();
+  });
+
+  it('toggles back to light', async () => {
+    localStorage.setItem('todo.theme', 'dark');
+    render(<ThemeToggle />);
+
+    await userEvent.click(screen.getByRole('button', { name: /switch to light mode/i }));
+
+    expect(localStorage.getItem('todo.theme')).toBe('light');
+    expect(document.documentElement.getAttribute('data-theme')).toBe('light');
+  });
 });
