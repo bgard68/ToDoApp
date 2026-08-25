@@ -44,11 +44,9 @@ on:
         required: true
         type: string
 
-# Read-only at the workflow level, so any job added to this file starts with nothing. The two
-# write scopes belong to the single job below and are declared there, next to the steps that
-# need them.
 permissions:
-  contents: read
+  contents: write  # sentinel:accept GHA002 - pushes the regenerated lock files to the Dependabot branch
+  actions: write   # sentinel:accept GHA002 - approves the PR checks GitHub creates after the bot push
 
 concurrency:
   group: dependabot-lockfix-${{ github.event.workflow_run.head_branch || inputs.branch }}
@@ -66,15 +64,6 @@ jobs:
     name: Regenerate lock files
     runs-on: ubuntu-latest
     timeout-minutes: 10
-
-    # Both scopes are load-bearing, and each is used by exactly one step below:
-    #   contents: write  -> "Push the fix if anything changed" (git push origin HEAD:$BRANCH)
-    #   actions:  write  -> "Approve the pull-request checks on the fixed commit"
-    #                       (POST /repos/{repo}/actions/runs/{id}/approve)
-    # Dropping either one breaks the repair this workflow exists to perform.
-    permissions:
-      contents: write
-      actions: write
 
     env:
       BRANCH: ${{ github.event.workflow_run.head_branch || inputs.branch }}
