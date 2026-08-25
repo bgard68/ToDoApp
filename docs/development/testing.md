@@ -19,7 +19,7 @@ the companion [CI/CD pipeline testing guide](../deployment/pipeline.md).
 | Frontend | `frontend/src/**/*.test.{js,jsx}` | **Vitest** + React Testing Library | Pure helpers, a component, and the `useTodos` hook (optimistic move + error handling). |
 | API — unit | `tests/TodoApp.UnitTests` | **xUnit** + FluentAssertions | Domain invariants and CQRS handlers (ownership, concurrency, auth/refresh) against real EF Core over in-memory SQLite. |
 | API — integration | `tests/TodoApp.IntegrationTests` | **xUnit** + `WebApplicationFactory<Program>` | The whole API in-process, hit over HTTP end-to-end (register → authorize → call endpoints). |
-| API — smoke | `scripts/todoapp-smoketest.ps1` | **PowerShell** (`Invoke-WebRequest`) | Every endpoint over HTTP against a *running* instance — a fast health / regression check (see §3.4). |
+| API — smoke | `scripts/todoapp-smoketest.ps1` | **PowerShell** (`Invoke-WebRequest`) | Every endpoint over HTTP against a *running* instance — a fast health / regression check (see §3.5). |
 
 The guiding rule on both sides: **tests use the real thing wherever it's cheap.** The API tests run
 against a genuine EF Core context (in-memory SQLite, not the EF in-memory provider) so query
@@ -306,7 +306,33 @@ dotnet test tests/TodoApp.UnitTests           # unit only
 dotnet test tests/TodoApp.IntegrationTests    # integration only
 ```
 
-### 3.4 End-to-end smoke test — `scripts/todoapp-smoketest.ps1`
+### 3.4 Measuring coverage
+
+Both API test projects reference `coverlet.collector`, and `coverlet.runsettings` at the repository
+root configures it: Cobertura **and** coverlet JSON output, only the four `TodoApp.*` assemblies in
+scope, and auto-properties skipped (a getter nobody wrote is not a branch anybody needs tested).
+
+```bash
+dotnet test TodoApp.sln --settings coverlet.runsettings
+```
+
+Each project writes `coverage.cobertura.xml` and `coverage.json` under its own `TestResults/<guid>/`.
+
+**Merge the JSON, not the Cobertura, when combining the two projects.** Cobertura records only a
+per-line branch *percentage*, which cannot be unioned across runs — a branch the unit suite covers
+and a branch the integration suite covers still read as "1 of 2" in both files, so a naive merge
+under-reports. Coverlet's JSON keeps every branch as its own record with a hit count, so summing
+per `(file, class, method, line, ordinal)` is exact.
+
+Current state: **99.88% of lines and 100% of branches**. Two lines are not covered, both because
+they need a live cloud service rather than because they lack a test:
+
+| Location | Why |
+| -------- | --- |
+| `GoogleTokenValidator.ValidateAsync` — the mapping after a successful validation | Verifying a real Google ID token requires Google's live signing keys. The mapping itself is split into `FromPayload` and is tested; the configuration guard and the malformed-token path are tested too. |
+| `Program.cs` — the closing brace of the Key Vault block | Only reached when `AddAzureKeyVault` succeeds against a real vault. The opt-in branch is covered both ways, including that a malformed `KeyVault:Uri` stops startup. |
+
+### 3.5 End-to-end smoke test — `scripts/todoapp-smoketest.ps1`
 
 Beyond the automated suites, a PowerShell script hits **every** API endpoint over HTTP against a
 *running* instance and prints a pass/fail report — the fastest way to confirm the whole API behaves
