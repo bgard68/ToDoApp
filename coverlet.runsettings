@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Coverage settings shared by the unit and integration suites.
+
+  Run with:  dotnet test TodoApp.sln  (plus the settings flag pointing at this file)
+  Each test project writes a Cobertura report under its own TestResults/<guid>/.
+-->
+<RunSettings>
+  <DataCollectionRunSettings>
+    <DataCollectors>
+      <DataCollector friendlyName="XPlat code coverage">
+        <Configuration>
+          <Format>cobertura,json</Format>
+          <!-- Only our own assemblies; the test assemblies themselves are not the subject. -->
+          <Include>[TodoApp.Domain]*,[TodoApp.Application]*,[TodoApp.Infrastructure]*,[TodoApp.WebApi]*</Include>
+          <ExcludeByAttribute>Obsolete,GeneratedCodeAttribute,CompilerGeneratedAttribute,ExcludeFromCodeCoverageAttribute</ExcludeByAttribute>
+          <SkipAutoProps>true</SkipAutoProps>
+          <UseSourceLink>false</UseSourceLink>
+          <DeterministicReport>false</DeterministicReport>
+        </Configuration>
+      </DataCollector>
+    </DataCollectors>
+  </DataCollectionRunSettings>
+</RunSettings>

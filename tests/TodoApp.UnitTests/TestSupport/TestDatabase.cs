@@ -33,6 +33,19 @@ public sealed class TestDatabase : IDisposable
         return new ApplicationDbContext(options);
     }
 
+    /// <summary>
+    /// Turns SQLite foreign-key enforcement off for the shared connection, so a test can seed a
+    /// deliberately orphaned row (a token or external login whose user no longer exists) and
+    /// exercise a handler's defensive "the row is gone" branch. Cascade deletes make that state
+    /// unreachable through the normal API, but the branch still has to hold.
+    /// </summary>
+    public void DisableForeignKeyEnforcement()
+    {
+        using var command = _connection.CreateCommand();
+        command.CommandText = "PRAGMA foreign_keys = OFF;";
+        command.ExecuteNonQuery();
+    }
+
     public void Dispose()
     {
         Context.Dispose();

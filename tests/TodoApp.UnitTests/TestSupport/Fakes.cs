@@ -1,6 +1,8 @@
+using Microsoft.EntityFrameworkCore;
 using TodoApp.Application.Common.Interfaces;
 using TodoApp.Application.Common.Models;
 using TodoApp.Domain.Entities;
+using TodoApp.Infrastructure.Persistence;
 
 namespace TodoApp.UnitTests.TestSupport;
 
@@ -75,4 +77,43 @@ public sealed class FakeBreachedPasswordChecker : IBreachedPasswordChecker
         CallCount++;
         return Task.FromResult(Breached);
     }
+}
+
+/// <summary>
+/// Wraps a real context and runs a hook immediately before its first SaveChanges, so a test can
+/// stage the other half of a race — another actor updating or deleting the row between this
+/// handler's read and its write. Only the first save is intercepted; later saves pass straight
+/// through, so a handler that saves twice still behaves normally after the conflict.
+/// </summary>
+public sealed class RacingDbContext : IApplicationDbContext
+{
+    private readonly ApplicationDbContext _inner;
+    private Action? _beforeFirstSave;
+
+    public RacingDbContext(ApplicationDbContext inner, Action beforeFirstSave)
+    {
+        _inner = inner;
+        _beforeFirstSave = beforeFirstSave;
+    }
+
+    public DbSet<TodoItem> TodoItems => _inner.TodoItems;
+
+    public DbSet<Category> Categories => _inner.Categories;
+
+    public DbSet<User> Users => _inner.Users;
+
+    public DbSet<RefreshToken> RefreshTokens => _inner.RefreshTokens;
+
+    public DbSet<ExternalLogin> ExternalLogins => _inner.ExternalLogins;
+
+    public Task<int> SaveChangesAsync(CancellationToken cancellationToken)
+    {
+        var hook = _beforeFirstSave;
+        _beforeFirstSave = null;
+        hook?.Invoke();
+        return _inner.SaveChangesAsync(cancellationToken);
+    }
+
+    public void SetOriginalConcurrencyToken(TodoItem entity, Guid token)
+        => _inner.SetOriginalConcurrencyToken(entity, token);
 }

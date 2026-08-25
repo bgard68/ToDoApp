@@ -35,15 +35,22 @@ public class GoogleTokenValidator : IGoogleTokenValidator
 
             var payload = await GoogleJsonWebSignature.ValidateAsync(idToken, settings);
 
-            return new GoogleUserInfo(
-                payload.Subject,
-                payload.Email,
-                payload.EmailVerified,
-                payload.Name);
+            return FromPayload(payload);
         }
         catch (InvalidJwtException)
         {
             return null;
         }
     }
+
+    /// <summary>
+    /// Maps an already-verified Google payload onto our own model. Split out from
+    /// <see cref="ValidateAsync"/> so the mapping is testable without a Google-signed token —
+    /// validation itself needs Google's live signing keys and cannot run offline.
+    /// </summary>
+    public static GoogleUserInfo FromPayload(GoogleJsonWebSignature.Payload payload) => new(
+        payload.Subject,
+        payload.Email,
+        payload.EmailVerified,
+        payload.Name);
 }
