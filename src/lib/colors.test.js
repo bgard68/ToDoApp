@@ -56,3 +56,49 @@ describe('hexToHsv()', () => {
     expect(hexToHsv('nope')).toBe(null);
   });
 });
+
+describe('hsvToHex() across the hue circle', () => {
+  it('covers every sixth of the circle', () => {
+    expect(hsvToHex(0, 1, 1)).toBe('#ff0000');    // 0-60
+    expect(hsvToHex(90, 1, 1)).toBe('#80ff00');   // 60-120
+    expect(hsvToHex(150, 1, 1)).toBe('#00ff80');  // 120-180
+    expect(hsvToHex(210, 1, 1)).toBe('#0080ff');  // 180-240
+    expect(hsvToHex(270, 1, 1)).toBe('#8000ff');  // 240-300
+    expect(hsvToHex(330, 1, 1)).toBe('#ff0080');  // 300-360
+  });
+
+  it('wraps a hue outside 0-360', () => {
+    expect(hsvToHex(360, 1, 1)).toBe(hsvToHex(0, 1, 1));
+    expect(hsvToHex(-30, 1, 1)).toBe(hsvToHex(330, 1, 1));
+  });
+
+  it('clamps saturation and value into range', () => {
+    expect(hsvToHex(0, 2, 2)).toBe(hsvToHex(0, 1, 1));
+    expect(hsvToHex(0, -1, -1)).toBe('#000000');
+  });
+
+});
+
+describe('hexToHsv() around the circle', () => {
+  it('finds the hue whichever channel is brightest', () => {
+    expect(hexToHsv('#ff0000').h).toBeCloseTo(0);     // red is max
+    expect(hexToHsv('#00ff00').h).toBeCloseTo(120);   // green is max
+    expect(hexToHsv('#0000ff').h).toBeCloseTo(240);   // blue is max
+  });
+
+  it('wraps a negative hue back into 0-360', () => {
+    // Red is max and blue exceeds green, which computes a negative hue first.
+    expect(hexToHsv('#ff00ff').h).toBeCloseTo(300);
+  });
+
+  it('reports no hue for greys', () => {
+    expect(hexToHsv('#808080')).toMatchObject({ h: 0, s: 0 });
+    expect(hexToHsv('#000000')).toMatchObject({ h: 0, s: 0, v: 0 });
+  });
+
+  it.each([null, undefined, ''])('treats %s as invalid rather than throwing', (input) => {
+    expect(hexToHsv(input)).toBe(null);
+    expect(isValidHexColor(input)).toBe(false);
+    expect(tint(input)).toBe(tint('#64748b'));
+  });
+});
