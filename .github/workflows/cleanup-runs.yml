@@ -21,9 +21,10 @@ on:
         required: false
         default: '1'
 
-# Deleting runs requires actions: write. Everything else stays least-privilege.
+# Read-only at the workflow level, so any job added to this file starts with nothing. The
+# write scope belongs to the single job below and is declared there, next to the step that
+# needs it.
 permissions:
-  actions: write
   contents: read
 
 concurrency:
@@ -34,6 +35,13 @@ jobs:
   cleanup:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+
+    # actions: write is used by exactly one step below, "Delete old runs of the high-frequency
+    # workflows" (DELETE /repos/{repo}/actions/runs/{id}). Deleting runs is what this workflow
+    # is for, so dropping it leaves the job with nothing to do.
+    permissions:
+      actions: write
+      contents: read
     env:
       GH_TOKEN: ${{ github.token }}
       KEEP: ${{ github.event.inputs.keep || '1' }}
