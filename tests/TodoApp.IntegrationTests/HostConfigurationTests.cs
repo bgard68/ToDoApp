@@ -2,7 +2,10 @@ using System.Net;
 using System.Net.Http.Json;
 using FluentAssertions;
 using Microsoft.AspNetCore.Hosting;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Options;
+using TodoApp.Infrastructure.Authentication;
 using Xunit;
 
 namespace TodoApp.IntegrationTests;
@@ -55,6 +58,17 @@ public class ProductionHostTests : IClassFixture<ProductionWebApplicationFactory
         registered.AccessToken.Should().NotBeNullOrWhiteSpace();
     }
 
+    [Fact]
+    public void TheTestHostNeverReachesForThePwnedPasswordsService()
+    {
+        var options = _factory.Services.GetRequiredService<IOptions<PasswordBreachCheckOptions>>();
+
+        // appsettings.json turns the check on for deployed environments. A test host that inherits
+        // that starts calling a third party, and the suite's outcome then depends on connectivity
+        // and on whether its passwords are in the corpus. This is the guard on that.
+        options.Value.Enabled.Should().BeFalse();
+    }
+
     private sealed record StatusResponse(string Status);
 }
 
@@ -82,7 +96,9 @@ public sealed class BareConfigurationWebApplicationFactory : CustomWebApplicatio
     {
         base.Dispose(disposing);
 
-        if (disposing)
+        // Dispose runs on both the sync and async teardown paths, so this is reached twice and a
+        // second delete would throw out of test-class cleanup.
+        if (disposing && Directory.Exists(_emptyContentRoot))
         {
             Directory.Delete(_emptyContentRoot, recursive: true);
         }

@@ -38,11 +38,19 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>
     /// clear of what the suite generates (the whole run shares one client-IP partition), and demo
     /// seeding is forced off so tests exercise the production default. Override to vary either.
     /// </summary>
+    /// <remarks>
+    /// The breach check is off explicitly rather than by inheriting it from
+    /// appsettings.Development.json, so a factory that hosts a different environment does not
+    /// silently start calling Have I Been Pwned. That reaches the real service, which makes the
+    /// suite depend on the network and on whether a test password is in the corpus — "Password1"
+    /// is, so registration 400s on a machine with connectivity and passes on one without.
+    /// </remarks>
     protected virtual IEnumerable<KeyValuePair<string, string?>> TestConfiguration =>
     [
         new("RateLimiting:Auth:PermitLimit", "10000"),
         new("RateLimiting:Global:PermitLimit", "10000"),
         new("Seed:DemoUser", "false"),
+        new("PasswordBreachCheck:Enabled", "false"),
     ];
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
