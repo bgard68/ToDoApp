@@ -125,6 +125,16 @@ length, so one request could drive 100k PBKDF2 iterations over a multi-megabyte 
   [`docs/lessons.md`](../lessons.md). Entries are normalised through `IPAddress`/`IPEndPoint`,
   which drops the ephemeral `:port` App Service appends; keeping it would partition per connection
   rather than per caller.
+- **The counters are per-instance.** Both limiters keep state in the serving process's memory,
+  which is exactly right on the **F1 tier** (one instance, one counter table) and wrong the moment
+  a second instance exists: each enforces the configured budget separately, so two instances allow
+  twice the limit. Nothing errors and nothing is logged — the configured numbers simply stop being
+  the numbers in effect. `ScaleOutCheck` warns once at startup when `WEBSITE_SKU` names a tier that
+  *can* run more than one instance (anything but `Free`/`Shared`). It reports capability rather than
+  live instance count, because no instance can see how many siblings it has. Before scaling out,
+  move the counters to a shared store; the database is **not** a substitute, since counters are
+  written on every request — including rejected ones — which would bill compute in proportion to the
+  abuse the limiter exists to absorb.
 - `PasswordPolicy` (`MinLength 8`, `MaxLength 128`, `MaxEmailLength 256`) is now shared by the
   login and register validators so they cannot drift.
 
