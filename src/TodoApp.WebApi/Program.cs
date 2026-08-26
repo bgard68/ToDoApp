@@ -180,6 +180,13 @@ _ = await DatabaseStartup.InitializeAsync(
     retryDelay: TimeSpan.FromSeconds(15),
     maxRetryAttempts: 10);
 
+// Once at startup: the throttling budgets are per-instance, so a tier able to run several of them
+// silently multiplies every limit. Checked rather than left as a comment, because the failure has
+// no symptom — the limits simply stop meaning what the configuration says.
+ScaleOutCheck.Inspect(
+    Environment.GetEnvironmentVariable("WEBSITE_SKU"),
+    warning => app.Services.GetRequiredService<ILogger<Program>>().LogWarning("{Message}", warning));
+
 app.UseExceptionHandler();
 
 // Baseline response headers on everything, including error responses (review finding H2).
