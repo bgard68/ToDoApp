@@ -118,9 +118,33 @@ jobs:
           exit-code: '1'
           ignore-unfixed: true
 
-      # Deliberately every severity, and deliberately not the gate: the Security tab is
-      # the place to see a MEDIUM coming before it is worth blocking on. `exit-code: '0'`
-      # because this step reports, and the step above decides.
+      # Every severity, in the log only. Non-gating (`exit-code: '0'`), so a MEDIUM is
+      # visible here before it is worth blocking on — the visibility the SARIF step used
+      # to provide, kept in the place where it costs nothing to look at it.
+      - name: Report every severity for the log
+        if: always()
+        continue-on-error: true
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: todoapp-api:ci
+          format: table
+          exit-code: '0'
+          ignore-unfixed: true
+
+      # The SARIF deliberately carries ONLY what the gate above blocks on.
+      #
+      # It used to carry every severity, and `limit-severities-for-sarif` is what that
+      # takes: without it trivy-action logs "Building SARIF report with all severities"
+      # and ignores `severity` entirely. The result was a Security tab holding MEDIUM and
+      # LOW findings in Ubuntu packages that arrive with the base image — fixed upstream,
+      # so `ignore-unfixed` keeps them, but unfixable HERE until Microsoft rebuilds
+      # mcr.microsoft.com/dotnet/aspnet. Refreshing the pinned digests does not clear
+      # them; the pins are already the newest published images.
+      #
+      # Those alerts cannot be actioned and do not survive being dismissed: every build
+      # re-uploads them and GitHub files them as new. A tab that is permanently amber
+      # over findings nobody can fix teaches people to stop opening it, which costs more
+      # than the early warning was worth. The warning still exists — in the step above.
       - name: Build SARIF for the Security tab
         if: always()
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
@@ -128,6 +152,8 @@ jobs:
           image-ref: todoapp-api:ci
           format: sarif
           output: trivy-api.sarif
+          severity: CRITICAL,HIGH
+          limit-severities-for-sarif: true
           exit-code: '0'
           ignore-unfixed: true
 
