@@ -114,7 +114,17 @@ length, so one request could drive 100k PBKDF2 iterations over a multi-megabyte 
   like it comes from the proxy, which would throttle all users as one — so
   `RateLimiting:TrustForwardedFor` opts into using the **last** `X-Forwarded-For` hop (the entry
   Azure App Service appends). Off by default, because trusting a client-supplied header where no
-  such proxy exists lets an attacker forge their way around the limit.
+  such proxy exists lets an attacker forge their way around the limit. **Both provisioning scripts
+  set it to `true`**, since App Service is such a proxy; left off there, the per-caller limits
+  become app-wide caps with nothing in the logs to explain the 429s.
+- Reading the **last** hop rather than the first is what makes trusting the header safe: a proxy
+  appends the address it observed instead of replacing what arrived, so everything to the left of
+  that entry is still caller-supplied.
+- The rules live in `ClientAddress` rather than a local function, so they are reachable by tests.
+  They previously were not, and an IPv6 client escaped the limiter entirely — see
+  [`docs/lessons.md`](../lessons.md). Entries are normalised through `IPAddress`/`IPEndPoint`,
+  which drops the ephemeral `:port` App Service appends; keeping it would partition per connection
+  rather than per caller.
 - `PasswordPolicy` (`MinLength 8`, `MaxLength 128`, `MaxEmailLength 256`) is now shared by the
   login and register validators so they cannot drift.
 

@@ -404,7 +404,13 @@ fi
 log "Configuring web app settings"
 # The app reads ConnectionStrings__DefaultConnection. It is passwordless, so it is set directly
 # rather than through a Key Vault reference — there is no secret to protect.
-APP_SETTINGS=("ConnectionStrings__DefaultConnection=${SQL_CONNECTION_STRING}" "Database__Provider=SqlServer")
+# RateLimiting__TrustForwardedFor is set because App Service IS a reverse proxy. Left at its
+# shipped default of false, every request reaches the app carrying the platform's address, all
+# callers collapse into a single partition, and the per-caller limits become global caps — the
+# whole app sharing 200 requests a minute and 10 sign-ins a minute. Nothing in a log explains it;
+# requests simply start returning 429. It is safe to trust here because only the LAST entry of
+# X-Forwarded-For is read, and that entry is the one App Service appended itself.
+APP_SETTINGS=("ConnectionStrings__DefaultConnection=${SQL_CONNECTION_STRING}" "Database__Provider=SqlServer" "RateLimiting__TrustForwardedFor=true")
 if [[ "$ENABLE_STORAGE" == "true" ]]; then
   APP_SETTINGS+=("StorageConnectionString=@Microsoft.KeyVault(VaultName=${KEYVAULT_NAME};SecretName=StorageConnectionString)")
 fi
