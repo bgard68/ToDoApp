@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Threading.RateLimiting;
 using Azure.Identity;
 using Microsoft.AspNetCore.RateLimiting;
@@ -52,28 +53,10 @@ var globalLimit = builder.Configuration.GetSection("RateLimiting:Global").Get<Ra
 // where such a proxy actually exists, otherwise a client can forge the header to dodge the limit.
 var trustForwardedFor = builder.Configuration.GetValue<bool>("RateLimiting:TrustForwardedFor");
 
-string ClientKey(HttpContext http)
-{
-    if (trustForwardedFor &&
-        http.Request.Headers.TryGetValue("X-Forwarded-For", out var forwarded) &&
-        forwarded.Count > 0)
-    {
-        var hops = forwarded.ToString().Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-        if (hops.Length > 0)
-        {
-            // Strip the :port Azure includes, and drop any IPv6 brackets.
-            var last = hops[^1];
-            var colon = last.LastIndexOf(':');
-            if (colon > 0 && last.IndexOf(':') == colon)
-            {
-                last = last[..colon];
-            }
-            return last.Trim('[', ']');
-        }
-    }
-
-    return http.Connection.RemoteIpAddress?.ToString() ?? "unknown";
-}
+// The rules for reading that header live in ClientAddress, where tests can reach them. As a local
+// function here nothing could exercise it, and the hand-rolled colon arithmetic that used to sit in
+// this spot left the :port attached for IPv6 callers — one partition per connection, no limit.
+string ClientKey(HttpContext http) => ClientAddress.Resolve(http, trustForwardedFor);
 
 builder.Services.AddRateLimiter(options =>
 {
@@ -98,8 +81,15 @@ builder.Services.AddRateLimiter(options =>
 
     options.OnRejected = async (context, cancellationToken) =>
     {
+        // Ask the limiter that actually rejected rather than assuming it was the auth one: the
+        // global backstop has its own window, and quoting the wrong figure tells a well-behaved
+        // client to retry while it is still blocked. Falls back to the auth window when the
+        // limiter reports no metadata.
+        var retryAfter = context.Lease.TryGetMetadata(MetadataName.RetryAfter, out var metadata)
+            ? metadata
+            : TimeSpan.FromSeconds(authLimit.WindowSeconds);
         context.HttpContext.Response.Headers.RetryAfter =
-            ((int)TimeSpan.FromSeconds(authLimit.WindowSeconds).TotalSeconds).ToString();
+            ((int)retryAfter.TotalSeconds).ToString(CultureInfo.InvariantCulture);
         context.HttpContext.Response.ContentType = "application/problem+json";
         await context.HttpContext.Response.WriteAsync(
             """{"title":"Too many requests.","status":429,"detail":"Rate limit exceeded. Try again shortly."}""",

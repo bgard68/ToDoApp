@@ -343,9 +343,16 @@ place-items:center;min-height:100vh;background:#0b1220;color:#e6edf3}
 
 # ---- 7. Wire app settings (Key Vault references + imported settings) --------
 Write-Step "Configuring web app settings"
+# RateLimiting__TrustForwardedFor is set because App Service IS a reverse proxy. Left at its
+# shipped default of false, every request reaches the app carrying the platform's address, all
+# callers collapse into a single partition, and the per-caller limits become global caps — the
+# whole app sharing 200 requests a minute and 10 sign-ins a minute. Nothing in a log explains it;
+# requests simply start returning 429. It is safe to trust here because only the LAST entry of
+# X-Forwarded-For is read, and that entry is the one App Service appended itself.
 $appSettings = @{
     'ConnectionStrings__DefaultConnection' = $sqlConnString
     'Database__Provider'                  = 'SqlServer'
+    'RateLimiting__TrustForwardedFor'      = 'true'
 }
 if ($EnableStorage) {
     $appSettings['StorageConnectionString'] = "@Microsoft.KeyVault(VaultName=$KeyVaultName;SecretName=StorageConnectionString)"

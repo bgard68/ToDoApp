@@ -219,6 +219,30 @@ function refreshSession() {
 
 **Lesson:** when the server implements refresh-token rotation with reuse detection (a good, standard security pattern), the client **must** serialize refreshes. Rotation + reuse-detection + parallel refresh = accidental self-inflicted "sign out everywhere." This also argues for keeping the refresh token in an httpOnly cookie and letting a single interceptor own the refresh, rather than every request racing to do it.
 
+## The untestable line — IPv6 callers were exempt from rate limiting
+
+**Symptom:** none. Nothing failed, nothing was logged, and the test asserting that auth endpoints return **429** passed the whole time.
+
+**Root cause:** the partition key came from a local function inside `Program.cs` that stripped the `:port` App Service appends by hand:
+
+```csharp
+var colon = last.LastIndexOf(':');
+if (colon > 0 && last.IndexOf(':') == colon) { last = last[..colon]; }  // only one colon → IPv4
+return last.Trim('[', ']');
+```
+
+The guard is deliberately conservative — it only slices when there is exactly one colon, so a bare IPv6 address is left alone. But `[2001:db8::1]:51514` has many colons, so the port is never removed, and `Trim('[', ']')` only strips the *leading* bracket because the string ends in a digit. The key became `2001:db8::1]:51514`.
+
+Source ports are ephemeral, so every connection from that client produced a **different partition**. An IPv6 caller was never rate limited at all — on the anonymous login endpoint, where each attempt costs 100k PBKDF2 iterations.
+
+**Why it survived review and CI:** the logic was a closure in `Program.cs`, so nothing could reach it. The one rate-limiting test drives the limiter through `HttpClient` over IPv4 and asserts a 429 arrives — true, and true for the wrong protocol. Coverage was green over a line no test could exercise.
+
+**Fix:** move the rules into `ClientAddress`, where tests can reach them, and parse instead of slice — `IPAddress.TryParse` first (so a bare IPv6 address is not mistaken for `host:port`), then `IPEndPoint.TryParse` (which handles both `1.2.3.4:80` and `[::1]:80`). Anything that parses as neither is discarded rather than used as an identity. Fourteen tests now cover the cases the closure never could.
+
+**The second finding, from the same read:** `RateLimiting:TrustForwardedFor` shipped `false` and **neither provisioning script set it**. App Service *is* a reverse proxy, so in Azure every request arrived carrying the platform's address and all callers shared one partition — the entire app throttled at 200 requests a minute and 10 sign-ins a minute, collectively. Both `provision.sh` and `Provision.ps1` now set it, which is safe precisely because only the last hop is read.
+
+**Lesson:** the two bugs are opposites — one exempted a caller from the limiter, the other applied it to everybody at once — and both were invisible. A rate limiter has no natural failure signal: working, wide open, and capping the whole world all look identical from the outside. That makes the partition key one of the few pieces of code where *reachable by a test* is a security property, not a style preference. A local function is not free.
+
 ## Dev-environment & tooling gotchas
 
 High-level notes on the environment snags hit while doing this work (and how each was resolved), so they don't cost time again:
