@@ -22,7 +22,7 @@ RUN npm run build
 
 # Unprivileged nginx: runs as uid 101 and listens on 8080, because a non-root process cannot bind
 # a port below 1024. The stock nginx image runs its master process as root (review finding M10).
-FROM nginxinc/nginx-unprivileged:alpine@sha256:59ccf0943b0b8e8d9e6ea9039a39555730f544701a655c596f7df7d096c593f5 AS final
+FROM nginxinc/nginx-unprivileged:alpine@sha256:901e944d1f4fc2bd077e8f5568b98c1f6f8cdacf6b97a87747c43134a339b9a7 AS final
 COPY --from=build /app/dist /usr/share/nginx/html
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 EXPOSE 8080

@@ -1,0 +1,26 @@
+# Findings the merge gate will not block on, each with a reason and an expiry.
+#
+# This file is passed ONLY to the gating scan step. The Security tab and the
+# every-severity log step still report everything, so nothing here is hidden —
+# it is excluded from blocking a merge, not from being seen.
+#
+# An entry without an expiry is a permanent exception, and a permanent exception
+# to a security gate is how the gate stops meaning anything. Every entry gets a
+# date. When it lapses the finding blocks again, which is the point: the excuse
+# has to be re-argued rather than inherited.
+vulnerabilities:
+  - id: CVE-2026-14456
+    statement: >-
+      OpenSSL DoS via unbounded memory growth in the QUIC server (libcrypto3 and
+      libssl3, 3.5.7-r0, fixed upstream in 3.5.8-r0).
+
+      Not fixable here. The pinned nginxinc/nginx-unprivileged:alpine digest is
+      already the newest the publisher ships — verified against the live registry
+      — and it still carries 3.5.7-r0. Refreshing the pin, which is what the gate
+      failure message advises, changes nothing. The fix has to come from nginxinc
+      rebuilding, and this entry expires so the gate asks again once they have.
+
+      Not reachable either. The web image serves static files over plain HTTP
+      behind Azure Static Web Apps, which terminates TLS. There is no QUIC
+      listener in this deployment, so the affected code path never executes.
+    expired_at: 2026-09-30
