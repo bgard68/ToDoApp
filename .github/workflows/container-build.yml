@@ -113,24 +113,72 @@ jobs:
           echo "All baseline security headers present on a live response."
           docker rm -f web
 
-      - name: Scan image for vulnerabilities
+      # The gate. Table format, not SARIF, and that distinction is the whole point:
+      # trivy-action IGNORES `severity` when it builds SARIF — it says so in the log,
+      # "Building SARIF report with all severities". A single step carrying `format: sarif`,
+      # `severity: CRITICAL,HIGH` and `exit-code: '1'` therefore reads as "block on fixable
+      # CRITICAL/HIGH" and behaves as "block on ANY fixable finding, down to LOW". On an
+      # Alpine base that is a gate no dependency bump can ever pass.
+      #
+      # `ignore-unfixed` still drops everything there is no patch for, so whatever survives
+      # is fixable by definition — a base image that has moved on. Blocking on those is
+      # right, and blocking is only alert fatigue when the alert is not actionable.
+      #
+      # `continue-on-error` with the failure raised at the end, so a red scan still reaches
+      # the upload step. Failing here skipped it, and the Security tab received the SARIF
+      # only on runs that had nothing to report.
+      - name: Scan image and report findings
+        id: scan
+        continue-on-error: true
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: todoapp-web:ci
+          format: table
+          severity: CRITICAL,HIGH
+          exit-code: '1'
+          ignore-unfixed: true
+
+      # Every severity, in the log only. Non-gating, so a MEDIUM is visible before it is
+      # worth blocking on, without holding a pull request open over it.
+      - name: Report every severity for the log
+        if: always()
+        continue-on-error: true
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: todoapp-web:ci
+          format: table
+          exit-code: '0'
+          ignore-unfixed: true
+
+      # `limit-severities-for-sarif` is what makes `severity` apply here at all. Without it
+      # the Security tab fills with LOW and MEDIUM findings in base-image packages, which
+      # cannot be dismissed durably: each build re-uploads them and GitHub files them as new.
+      - name: Build SARIF for the Security tab
+        if: always()
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           image-ref: todoapp-web:ci
           format: sarif
           output: trivy-web.sarif
           severity: CRITICAL,HIGH
-          # `ignore-unfixed` already drops everything there is no patch for, so whatever
-          # survives it is fixable by definition — a base image that has moved on. Reporting
-          # those rather than failing is what let 28 of them accumulate on main unnoticed:
-          # they were not waiting on the maintainer, the maintainer had already shipped.
-          # Blocking is only alert fatigue when the alert is not actionable, and after
-          # ignore-unfixed it always is.
-          exit-code: '1'
+          limit-severities-for-sarif: true
+          exit-code: '0'
           ignore-unfixed: true
 
+      # `always()` so the upload happens on failing runs too — those are the ones whose
+      # findings are worth having. Guarded on the file existing, so a scan that died before
+      # writing the SARIF does not fail here with an error that masks the real one.
       - name: Upload scan results
+        if: always() && hashFiles('trivy-web.sarif') != ''
         uses: github/codeql-action/upload-sarif@ff2f1c621b7f889edc0d3c761ac2e6a3f8cdb0dd # v4
         with:
           sarif_file: trivy-web.sarif
           category: trivy-container
+
+      # Kept last so a red X here means "fixable CRITICAL/HIGH in the web image" and the
+      # SARIF is already uploaded to say which.
+      - name: Fail on fixable CRITICAL/HIGH findings
+        if: steps.scan.outcome == 'failure'
+        run: |
+          echo "::error title=Fixable CVEs in the web image::Trivy found CRITICAL/HIGH vulnerabilities that have a patch available. See the table in 'Scan image and report findings' above, and the Security tab (category trivy-container). Usually the fix is to refresh the pinned base image digest."
+          exit 1
