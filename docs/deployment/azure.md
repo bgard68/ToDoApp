@@ -257,6 +257,36 @@ SWA_URL="https://$(az staticwebapp show -g $RG -n $SWA_APP --query defaultHostna
 echo "SPA will be at: $SWA_URL"
 ```
 
+### Preview (staging) environments — the quota that can block every merge
+
+Every pull request against the SPA branch gets a **preview environment**: a throwaway copy of the
+site at `<hostname>-<PR number>.<region>.azurestaticapps.net`. The Free tier allows **3** of them,
+and a teardown that fails to fire leaks a slot silently.
+
+When all 3 are taken, the next PR's deploy fails with:
+
+> `This Static Web App already has the maximum number of staging environments. Please remove one and try again.`
+
+Because the deploy is a **required check**, a full quota doesn't just break previews — **no PR can
+merge into the SPA branch at all**, and nothing says so until the next deploy attempt. See the
+[troubleshooting log](troubleshooting-log.md) for the time this blocked the branch for days.
+
+List them (the `Name` column is the PR number; `default` is production — never delete it):
+
+```bash
+az staticwebapp environment list -n $SWA_APP -g $RG -o table
+```
+
+Delete any whose PR is no longer open (recreated automatically if the PR gets a new push):
+
+```bash
+az staticwebapp environment delete -n $SWA_APP -g $RG --environment-name <PR number> --yes
+```
+
+> **PowerShell users:** put JMESPath `--query` strings in **single** quotes. In double quotes,
+> `?`/`{}` are taken by the shell first and `az` sees a mangled query
+> (`].{name:name was unexpected at this time`).
+
 ---
 
 ## Phase 9 — Google sign-in
