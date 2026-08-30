@@ -137,6 +137,11 @@ jobs:
           severity: CRITICAL,HIGH
           exit-code: '1'
           ignore-unfixed: true
+          # Dated exceptions, and ONLY on the gate. The two reporting steps below
+          # do not take this file, so anything excused here is still visible in the
+          # log and in the Security tab — excused from blocking a merge, not from
+          # being seen. Each entry carries an expiry; see .trivyignore.yaml.
+          trivyignores: .trivyignore.yaml
 
       # Every severity, in the log only. Non-gating, so a MEDIUM is visible before it is
       # worth blocking on, without holding a pull request open over it.
