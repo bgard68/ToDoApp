@@ -648,6 +648,54 @@ curl -s -X POST "https://<host>/api/auth/login" \
 - **When a deployment's state is too tangled to clean** (SSH won't open, deploys overlay), **recreate
   the App Service** — it's faster and more reliable than fighting the corrupted folder. Keep the SQL
   server, Key Vault, and Static Web App; only rebuild the API.
+- **SWA deploy fails with `BadRequest` → check the staging quota first.** Free tier = 3 preview
+  environments; leaked previews from merged PRs fill them silently, and a full quota blocks every
+  merge on the branch because the deploy is a required check. `az staticwebapp environment list`
+  names the culprits by PR number (§9).
+
+## 9. The merge blockade nobody could see (2026-08-30)
+
+**Symptom:** every pull request against `frontend` failed the required *Build & Deploy Frontend*
+check. Green everywhere else, unmergeable, no code change involved — and closing/reopening or
+force-pushing changed nothing.
+
+**Root cause:** the Static Web App (`taskboard-05-web`, resource group `taskboard-05-web_group` —
+note: *not* the API's `rg-taskboard`) had all **3 free-tier staging environments** occupied by
+previews for PRs **#18** (merged mid-July), **#61** (Aug 2) and **#139** (Aug 25). Their teardowns
+never fired, so the slots leaked one at a time over six weeks. From Aug 25 the quota was full and
+every new deploy got:
+
+```
+The content server has rejected the request with: BadRequest
+Reason: This Static Web App already has the maximum number of staging environments.
+```
+
+The failure only surfaces on the *next* PR's deploy, so the branch was fully blocked with nothing
+pointing at Azure. Three wrong theories preceded the right one (GitHub event delivery, a deploy/
+teardown race, closed-PR slots); what settled it was listing the environments and reading the
+`CreatedTimeUtc` column.
+
+**Diagnosis and fix:**
+
+```bash
+# Which SWA is it? (names don't match the API's: taskboard-05-web vs taskboard-06-api)
+az staticwebapp list -o table
+
+# What is holding the slots? Name = PR number; default = production
+az staticwebapp environment list -n taskboard-05-web -g taskboard-05-web_group -o table
+
+# Free each stale slot (safe: previews are throwaway; a push to an open PR recreates one)
+az staticwebapp environment delete -n taskboard-05-web -g taskboard-05-web_group --environment-name 18  --yes
+az staticwebapp environment delete -n taskboard-05-web -g taskboard-05-web_group --environment-name 61  --yes
+az staticwebapp environment delete -n taskboard-05-web -g taskboard-05-web_group --environment-name 139 --yes
+```
+
+The blocked PR's deploy passed on the next run and merged.
+
+**Open follow-up:** `deploy.yml` *has* a `close-pull-request` teardown job, yet #139's preview
+survived its merge — so the leak mechanism is still live, and three merged PRs will refill the
+quota. Until that's root-caused, treat `az staticwebapp environment list` as the first move whenever
+the SWA deploy fails with `BadRequest`.
 
 ---
 
