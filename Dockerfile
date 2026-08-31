@@ -5,7 +5,7 @@
 # Dockerfile can produce a different image tomorrow, so a reproducible build and an audited base
 # are impossible with tags alone. Refresh with:
 #   docker buildx imagetools inspect node:22-alpine --format '{{.Manifest.Digest}}'
-FROM node:22-alpine@sha256:c610fcdfb1d5b4740dd70c284ed3cb16bb857e0f7166196e36a5501df7a3aa32 AS build
+FROM node:26-alpine@sha256:2d984a15c9b54fd0aeb608b8e0d0d83529eb34d2966db27a1fb4f1edc3d298a3 AS build
 WORKDIR /app
 
 # npm ci, not npm install: ci installs exactly what package-lock.json records and fails if the
@@ -22,7 +22,7 @@ RUN npm run build
 
 # Unprivileged nginx: runs as uid 101 and listens on 8080, because a non-root process cannot bind
 # a port below 1024. The stock nginx image runs its master process as root (review finding M10).
-FROM nginxinc/nginx-unprivileged:alpine@sha256:901e944d1f4fc2bd077e8f5568b98c1f6f8cdacf6b97a87747c43134a339b9a7 AS final
+FROM nginxinc/nginx-unprivileged:alpine@sha256:d9083fe47768377ef55dedafd67d4da7c2f2bc2bece7554954f29359deb0dce9 AS final
 COPY --from=build /app/dist /usr/share/nginx/html
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 EXPOSE 8080
