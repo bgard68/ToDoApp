@@ -182,7 +182,7 @@ _ = await DatabaseStartup.InitializeAsync(
     // Defaults to true so an unconfigured host still comes up with a schema. Deployed
     // environments turn it OFF in appsettings.json (see DbInitializer for why) and turn it back
     // on for the single deployment that creates or changes the schema.
-    ensureCreated: builder.Configuration.GetValue("Database:InitializeOnStartup", true));
+    initializeOnStartup: builder.Configuration.GetValue("Database:InitializeOnStartup", true));
 
 // Once at startup: the throttling budgets are per-instance, so a tier able to run several of them
 // silently multiplies every limit. Checked rather than left as a comment, because the failure has
