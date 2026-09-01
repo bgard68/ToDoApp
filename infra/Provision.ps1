@@ -51,7 +51,18 @@ param(
     # Linux runtime for New-AzWebApp; adjust to your stack (e.g. 'NODE|20-lts','PYTHON|3.12')
     [string] $Runtime        = 'DOTNETCORE|10.0',   # matches net10.0 (finding L2)
 
-    # Azure SQL (General Purpose serverless Gen5 + free limit)
+    # Database provider. The deployed app runs Postgres on Neon: Azure SQL serverless bills a
+    # 60-minute minimum every time a paused database wakes (the auto-pause floor), ~55 wakes per
+    # free month, and deploys spent most of them. Neon bills minutes used and resumes in ~1-2s.
+    # See docs/deployment/cold-starts.md.
+    #   postgres  (default) — creates no Azure database; a Neon connection string (prompted, or
+    #                         -NeonConnectionString) is stored in Key Vault and referenced.
+    #   sqlserver           — provisions the Entra-only Azure SQL server + serverless database.
+    [ValidateSet('postgres','sqlserver')]
+    [string] $DbProvider     = 'postgres',
+    [securestring] $NeonConnectionString,
+
+    # Azure SQL (General Purpose serverless Gen5 + free limit) — only when -DbProvider sqlserver
     [string] $SqlServerName  = "$Project-sql-$(Get-Random -Maximum 99999)",
     [string] $SqlDbName      = $Project,
     [double] $SqlMaxVCores   = 2,
@@ -105,7 +116,8 @@ Planned deployment
   Resource group     : $ResourceGroup        ($Location)
   App Service plan   : $AppServicePlan        (Linux, $AppSku)
   Web app            : $WebAppName            (runtime $Runtime)
-  SQL server         : $SqlServerName
+  Database provider  : $DbProvider
+  SQL server         : $(if ($DbProvider -eq 'sqlserver') { $SqlServerName } else { 'n/a (Neon)' })
   SQL database       : $SqlDbName             (GP serverless Gen5, free-limit=$SqlUseFreeLimit)
                        vCores $SqlMinVCores-$SqlMaxVCores, auto-pause ${SqlAutoPauseMin}m
   SQL Entra admin    : $EntraAdminName ($EntraAdminType)
@@ -181,6 +193,20 @@ $principalId = $webapp.Identity.PrincipalId
 Write-Ok "Web app ready (system identity: $principalId)"
 
 # ---- 4. Azure SQL server + serverless database (free limit) -----------------
+if ($DbProvider -eq 'postgres') {
+    # Neon has no Azure CLI and no ARM resource, so there is nothing to create. The one input is
+    # the pooled connection string; it carries a password, so it is read as a SecureString and
+    # written to Key Vault below rather than into app settings.
+    if (-not $NeonConnectionString) {
+        Write-Host "  Neon connection string required (free project at https://neon.com)."
+        Write-Host "  Form: Host=<host>.neon.tech;Database=<db>;Username=<user>;Password=<pw>;SSL Mode=Require;Trust Server Certificate=true;Timeout=30;Command Timeout=60"
+        $NeonConnectionString = Read-Host -AsSecureString "  Connection string"
+    }
+    if (-not $NeonConnectionString) { throw "No connection string supplied; pass -NeonConnectionString or use -DbProvider sqlserver." }
+    Write-Ok "Neon connection string captured (stored in Key Vault below)"
+}
+else {
+
 Write-Step "Creating Azure SQL server '$SqlServerName'"
 if (-not (Get-AzSqlServer -ResourceGroupName $ResourceGroup -ServerName $SqlServerName -ErrorAction SilentlyContinue)) {
     # Entra-only: no SQL administrator credential is created at all (review findings M2/M4).
@@ -234,6 +260,8 @@ foreach ($ip in $outbound) {
     }
 }
 Write-Ok "Firewall rule set"
+
+}   # end -DbProvider sqlserver
 
 # ---- 5. Key Vault + secrets -------------------------------------------------
 Write-Step "Creating Key Vault '$KeyVaultName'"
@@ -349,10 +377,29 @@ Write-Step "Configuring web app settings"
 # whole app sharing 200 requests a minute and 10 sign-ins a minute. Nothing in a log explains it;
 # requests simply start returning 429. It is safe to trust here because only the LAST entry of
 # X-Forwarded-For is read, and that entry is the one App Service appended itself.
-$appSettings = @{
-    'ConnectionStrings__DefaultConnection' = $sqlConnString
-    'Database__Provider'                  = 'SqlServer'
-    'RateLimiting__TrustForwardedFor'      = 'true'
+if ($DbProvider -eq 'postgres') {
+    # The Neon string carries a password, so it is a real secret: it goes to Key Vault and app
+    # settings hold only a reference. Unlike the Entra-only SQL path, which has no credential at
+    # all -- a deliberate trade, see docs/deployment/cold-starts.md.
+    Set-AzKeyVaultSecret -VaultName $KeyVaultName -Name 'ConnectionStrings--DefaultConnection' `
+        -SecretValue $NeonConnectionString | Out-Null
+    Write-Ok "Neon connection string stored in Key Vault"
+
+    $appSettings = @{
+        'ConnectionStrings__DefaultConnection' = "@Microsoft.KeyVault(VaultName=$KeyVaultName;SecretName=ConnectionStrings--DefaultConnection)"
+        'Database__Provider'                   = 'Postgres'
+        # Opt-in and OFF by default: on a scale-to-zero database, opening a connection IS the
+        # wake-up, so an unconditional schema check makes every redeploy pay for one.
+        'Database__InitializeOnStartup'        = 'false'
+        'RateLimiting__TrustForwardedFor'      = 'true'
+    }
+}
+else {
+    $appSettings = @{
+        'ConnectionStrings__DefaultConnection' = $sqlConnString
+        'Database__Provider'                   = 'SqlServer'
+        'RateLimiting__TrustForwardedFor'      = 'true'
+    }
 }
 if ($EnableStorage) {
     $appSettings['StorageConnectionString'] = "@Microsoft.KeyVault(VaultName=$KeyVaultName;SecretName=StorageConnectionString)"
