@@ -55,32 +55,80 @@ It deliberately **does not** retry other responses — **`400 / 401 / 403 / 404 
 are returned straight away — so genuine errors (bad input, wrong password, conflicts, real
 bugs) still fail fast rather than making the user wait out a retry budget.
 
-### 3. Keep-warm ping — `.github/workflows/keep-warm.yml`
+### 3. Keep-warm ping — external monitor (primary) + `.github/workflows/keep-warm.yml` (backup)
 
-A scheduled GitHub Action pings the API **root** (`/`, which 302-redirects to Swagger) about
-every 10 minutes so the F1 App Service instance stays loaded and users rarely hit an app
-cold start.
+Something pings the API **root** (`/`, a static `{"status":"ok"}` payload) every few minutes so
+the F1 App Service instance stays loaded and visitors rarely hit an app cold start.
 
-- **App-only, by design.** The ping loads the app but runs **no database query**, so it does
-  **not** keep the serverless DB awake and does **not** burn the Azure SQL **free-limit**
-  vCore-seconds. The occasional DB cold start that still happens is covered by #1 and #2.
-- **Free on a public repo.** GitHub Actions minutes are **unlimited on public repositories**,
-  so ~144 runs/day cost nothing. On a **private** repo they count against the 2,000 free
-  minutes/month (each run rounds up to 1 min → ~4,320 min/month, over budget) — there, widen
-  the interval or drop the workflow and rely on #2.
-- **F1 CPU quota is fine.** 144 lightweight redirects/day is a few CPU-seconds, far under
-  F1's ~60 CPU-minutes/day.
-- **Config.** It uses the repo Actions **Variable `VITE_API_URL`** (the API base URL — the one
-  that shows Swagger) and skips cleanly if that's unset. Scheduled workflows only start once
-  the file is on the default branch, and GitHub can delay or skip runs under load — so treat
-  "10 min" as *roughly*.
+**App-only, by design.** The ping loads the app but runs **no database query**, so it does
+**not** keep the serverless DB awake and does **not** burn the Azure SQL **free-limit**
+vCore-seconds. The residual DB cold start is covered by #1 and #2 above.
+
+#### Why the GitHub Action is not the primary
+
+GitHub states scheduled workflows are **best-effort**: under scheduler load runs are delayed
+or dropped, high-frequency crons first, and skipped runs are **not logged anywhere** — they
+simply never happen.
+
+> **Observed 2026-09-01.** `keep-warm.yml` last ran 06:36 UTC; by 11:45 UTC it had not run
+> again — a **five-hour gap** where a `*/10` cron should have fired ~31 times. GitHub Actions
+> reported no incident. The F1 instance had unloaded hours earlier, and a probe of the API
+> paid a **~90-second** cold start. The workflow was `active` and correctly configured; there
+> was nothing to fix.
+
+That gap matters more than the length suggests: the client's `wakeFetch` retry budget is
+**~50s**, so a **DB** resume (30–60s) mostly fits inside it and surfaces as "Waking the server
+up…", while an **app** cold start (~90s) **exceeds** it and surfaces as a hard error. Keeping
+the app loaded is what keeps every remaining failure inside the window the client can absorb
+politely.
+
+#### Primary: an external uptime monitor
+
+Use a service whose whole job is firing HTTP requests on time — [UptimeRobot](https://uptimerobot.com)
+(free: 50 monitors, 5-minute interval) or [cron-job.org](https://cron-job.org) (free, 1-minute
+minimum). Both also alert on downtime, which the GitHub Action never did.
+
+Setup (one monitor, ~5 minutes):
+
+1. Create a free account and add an **HTTP(s)** monitor.
+2. **URL** — the API base URL, the one that shows Swagger (same value as the repo Actions
+   variable `VITE_API_URL`), with a trailing `/`.
+3. **Interval** — 5 minutes. Anything under F1's ~20-minute unload window works; 5 minutes
+   leaves room for a missed check.
+4. Expect **HTTP 200** with body `{"status":"ok"}`. Leave alerting on to hear about real outages.
+
+#### Backup: keep the GitHub Action
+
+`keep-warm.yml` stays enabled at `*/10` as the fallback for a lapsed monitor account or a
+monitor outage. Overlapping pings are harmless, and it keeps a manual **"wake it now"** button
+for the minutes before you expect traffic:
+
+```bash
+gh workflow run keep-warm.yml
+```
+
+It uses the repo Actions **Variable `VITE_API_URL`** and skips cleanly if that's unset.
+
+#### Free-tier accounting (both pingers running)
+
+| Limit | Usage | Verdict |
+|---|---|---|
+| GitHub Actions minutes | Unlimited on **public** repos (this repo is public) | Free |
+| UptimeRobot free plan | 1 of 50 monitors, 5-min interval allowed | Free |
+| F1 CPU (~60 CPU-min/day) | ~430 static responses/day — a few CPU-seconds | Far under |
+| F1 bandwidth (165 MB/day) | ~430 × ~1 KB ≈ 0.5 MB/day | Far under |
+| Azure SQL free limit (100k vCore-sec/mo) | Ping never touches the DB | Untouched |
+
+On a **private** repo the Action's ~144 runs/day would round up to ~4,320 minutes/month against
+the 2,000 free — there, drop the backup and keep only the external monitor.
 
 ## Tuning
 
-- **Change the frequency** — edit the `cron` in `keep-warm.yml` (GitHub's minimum is 5 min;
-  an interval **≥ ~15 min lets the app sleep** between pings, so cold starts return).
-- **Turn it off** — delete `keep-warm.yml` (or disable it in the Actions tab). The client-side
-  retry (#2) still keeps cold starts from ever showing "Failed to fetch."
+- **Change the frequency** — edit the monitor's interval (or the `cron` in `keep-warm.yml`;
+  GitHub's minimum is 5 min). An interval **≥ ~15 min lets the app sleep** between pings, so
+  cold starts return.
+- **Turn the backup off** — delete `keep-warm.yml` (or disable it in the Actions tab) once the
+  external monitor is running. The client-side retry (#2) still handles what gets through.
 - **Eliminate cold starts entirely (costs money)** — move App Service to **B1** and enable
   **Always On** (removes the *app* cold start), and disable SQL serverless auto-pause (removes
   the *DB* cold start). Both incur ongoing cost and lose the free/serverless savings, so

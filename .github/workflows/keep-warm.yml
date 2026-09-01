@@ -1,17 +1,28 @@
 name: Keep API warm
 
-# Pings the API on a schedule so the Free (F1) App Service instance doesn't unload
-# between visits. It hits the ROOT endpoint only (a static health payload outside
-# Development), so it warms the *app* WITHOUT querying the database — that way it does
-# not burn the Azure SQL serverless free-limit. The occasional DB cold start that still
-# happens is handled gracefully client-side (apiClient.js "Waking the server up…").
+# BACKUP keep-warm. An external uptime monitor is the PRIMARY ping (see
+# docs/deployment/cold-starts.md); this workflow is the fallback for when that monitor
+# is down or its account lapses.
+#
+# Why it is not primary: GitHub's scheduler is best-effort and sheds high-frequency
+# crons under load — silently, with no skipped-run record. Observed 2026-09-01: a
+# five-hour gap between runs (06:36 → 11:45 UTC) with GitHub Actions reporting no
+# incident, long enough for the F1 instance to unload and a visitor to hit a ~90s cold
+# start. Nothing to fix or tune; scheduled runs simply carry no timing guarantee.
+#
+# It hits the ROOT endpoint only (a static health payload outside Development), so it
+# warms the *app* WITHOUT querying the database — that way it does not burn the Azure
+# SQL serverless free-limit. The occasional DB cold start that still happens is handled
+# gracefully client-side (apiClient.js "Waking the server up…").
 #
 # Notes:
 #   - Uses the repo Variable VITE_API_URL (Settings > Secrets and variables >
 #     Actions > Variables) — the API base URL, the one that shows Swagger.
-#   - GitHub delays/skips scheduled runs under load, so treat ~10 min as "roughly".
-#   - Free Actions minutes are unlimited on PUBLIC repos; on a PRIVATE repo this
-#     counts against the monthly minutes — widen the interval or skip it there.
+#   - The interval stays under F1's ~20 min unload window so the backup is useful on
+#     its own if the external monitor stops; overlapping with it is harmless.
+#   - Free Actions minutes are unlimited on PUBLIC repos (this one is public); on a
+#     PRIVATE repo this counts against the monthly minutes — widen the interval there.
+#   - Manual "wake it now" run before you expect traffic: gh workflow run keep-warm.yml
 
 on:
   schedule:

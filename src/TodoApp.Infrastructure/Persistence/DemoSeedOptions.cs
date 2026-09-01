@@ -20,10 +20,15 @@ public class DemoSeedOptions
     public string Email { get; set; } = "demo@todoapp.local";
 
     /// <summary>
-    /// Password for the demo account. Sourced from configuration (env var / Key Vault) so a
-    /// deployed instance never uses a value that is committed to the repository. When seeding is
+    /// Password for the demo account. Sourced from configuration (env var / Key Vault) rather than
+    /// a constant in the assembly, so each deployment chooses its own value. When seeding is
     /// enabled and this is blank, a random password is generated and the account is unusable for
     /// sign-in — deliberately failing closed rather than falling back to a known constant.
     /// </summary>
+    /// <remarks>
+    /// The public demo deployment deliberately configures the same credentials the README
+    /// publishes: the shared account is the point, so visitors can try the app without signing up.
+    /// Any deployment holding real data must set a private value here instead.
+    /// </remarks>
     public string Password { get; set; } = string.Empty;
 }

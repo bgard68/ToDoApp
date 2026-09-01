@@ -13,6 +13,22 @@ is a React (Vite) single-page app.
        width="480">
 </p>
 
+<p align="center">
+  <b><a href="https://salmon-field-054249810.7.azurestaticapps.net">▶ Live demo</a></b>
+  &nbsp;·&nbsp; sign in as <code>demo@todoapp.local</code> / <code>Password123!</code>
+  &nbsp;·&nbsp; <a href="https://github.com/bgard68/ToDoApp/tree/frontend">React frontend source</a>
+</p>
+
+<p align="center">
+  <sub>The demo account is shared, so its board is whatever visitors leave behind. Register your
+  own (or use Google sign-in) for a private board with its own starter categories.</sub>
+</p>
+
+> The demo runs on free Azure tiers. The API is kept warm by an uptime monitor, but the
+> serverless database pauses when idle — so the first sign-in after a quiet spell can take
+> ~30–60s while it resumes, showing "Waking the server up…". See
+> [cold starts](docs/deployment/cold-starts.md).
+
 ## Highlights
 
 - **Kanban board** — three lanes (To Do / In Progress / Done) with native HTML5
@@ -130,7 +146,7 @@ with the **[Azure guide](docs/deployment/azure.md)**.
 - **[Troubleshooting log](docs/deployment/troubleshooting-log.md)** — a chronological post-mortem of getting the API + Key Vault working on Azure: every symptom, how the logs were read (Kudu VFS API, `docker.log`), the root-cause chain, the clean rebuild, and every command used.
 - **[Pipeline testing & error handling](docs/deployment/pipeline.md)** — how the GitHub Actions pipeline is structured, how fail-fast + notifications stop a broken build from deploying, the "Verify publish output" guard, and how to test all of it.
 - **[Secret hygiene](docs/deployment/secret-hygiene.md)** — how Azure/app secrets are kept out of git: the hardened `.gitignore`, gitleaks scanning (pre-commit + a CI gate on every push/PR), what's tracked vs. ignored, and the audit confirming the tree and full history are clean.
-- **[Cold starts on the free tier](docs/deployment/cold-starts.md)** — why the first request after idle is slow (App Service + serverless SQL waking), why you may see 502/503/504, and the three mitigations: server-side DB retry, the client `wakeFetch` retry that shows "Waking the server up…", and the keep-warm GitHub Action.
+- **[Cold starts on the free tier](docs/deployment/cold-starts.md)** — why the first request after idle is slow (App Service + serverless SQL waking), why you may see 502/503/504, and the three mitigations: server-side DB retry, the client `wakeFetch` retry that shows "Waking the server up…", and the keep-warm ping (an external uptime monitor, with a GitHub Action as backup).
 
 **Architecture & design** — [`docs/architecture/`](docs/architecture/)
 
