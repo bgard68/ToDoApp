@@ -162,7 +162,8 @@ independent caches and dark-mode behavior a website can neither clear nor overri
 
 **Symptom:** the first request after the app had been idle failed instantly with
 "Failed to fetch" (or a 502/503/504) — because Azure's Free App Service unloads the API
-after ~20 min and the serverless database auto-pauses, so the first hit has to wake them.
+after ~20 min and the serverless database suspends when idle, so the first hit has to wake them
+(with Postgres on Neon the database part is now a second or two).
 
 **Fix (client side):** all requests go through a `wakeFetch` wrapper in
 `src/lib/apiClient.js` that retries **network errors and 502/503/504** with exponential

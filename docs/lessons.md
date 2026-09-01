@@ -19,6 +19,7 @@ The ones that cost the most time — jump to the section for the full story:
 - **`401 … "The signature key was not found"`** → [Local dev & auth testing](#local-dev--auth-testing): a stale/cross-instance token, or an env var overriding your user-secret.
 - **Users get signed out of every device at once** → [The real find](#the-real-find--concurrent-refresh-signed-users-out-everywhere): parallel refreshes tripping reuse detection.
 - **Serverless Azure SQL times out on the first request** → [Database](#database-sqlite-vs-azure-sql): auto-pause cold start (errors -2 / 40613) — retry, and keep seeding off the startup path.
+- **The database free tier ran dry at ~55 wakes/month** → [Database economics](#database-economics--why-prod-moved-from-azure-sql-to-neon): Azure SQL serverless bills a full hour per wake; prod now runs Postgres on Neon, and startup schema creation is opt-in so deploys stop waking the DB.
 - **First request after idle is slow / "Failed to fetch"** → [Cold starts on the free tier](deployment/cold-starts.md): the app *and* DB wake from sleep; the client retries `502/503/504` + network errors, and a keep-warm ping keeps the app loaded — from an external monitor, because GitHub's cron silently skips runs (a five-hour gap was observed).
 - **`<name>.azurewebsites.net` won't resolve** → [Networking / hostnames](#networking--hostnames): use the Overview page's regional Default domain.
 - **Drag-and-drop is dead on mobile** → [frontend notes](development/frontend-notes.md): the native HTML5 DnD API is touch-blind.
@@ -39,6 +40,24 @@ The ones that cost the most time — jump to the section for the full story:
 - Serverless Azure SQL auto-pauses when idle → the first request cold-starts and times out (errors -2 / 40613).
 - Running `EnsureCreated`/seeding at startup blocks the app from booting when the DB is asleep → move it off the startup path.
 - Cold-start fixes: EF `EnableRetryOnFailure`, a longer `Connect Timeout`, and resilient (non-blocking) startup.
+
+## Database economics — why prod moved from Azure SQL to Neon
+
+- **Serverless billing granularity beats headline allowance.** Azure SQL serverless bills a
+  60-minute minimum per wake (the auto-pause floor), so the 100k vCore-second free month is
+  really **~55 wakes** — under two visits a day. August 2026 closed at 98,554/100,000.
+  Neon bills the minutes actually used: the same kind of allowance buys thousands of visits.
+- **Startup schema checks are a hidden metered cost.** `EnsureCreated` on every boot meant
+  every deploy and instance recycle woke the paused database and spent a full billed hour
+  with zero visitors. Schema creation is now opt-in (`Database:InitializeOnStartup`).
+- **A config key served from two places is a cutover trap.** The new connection string went
+  into Key Vault while App Service still carried the old one — and because the vault loads
+  **last**, it silently won the moment the app restarted, feeding a Postgres string to the
+  SQL Server driver: seven minutes of 500s in the deploy smoke test. When a secret moves
+  stores, flip every setting that selects *which* backend in the **same** change.
+- **Resume time is a product feature.** 30–60s of Azure SQL resume exceeded the client's
+  ~50s retry budget on bad days; Neon resumes in ~1–2s and the "waking up" message barely
+  has time to render.
 
 ## Deployment
 

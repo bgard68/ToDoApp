@@ -25,7 +25,7 @@ it's here. For the at-a-glance summary, see the [README](../../README.md).
 
 - **Entity Framework Core 10** — the ORM; also serves as the Unit of Work / Repository layer
   (`DbContext` + `DbSet`) behind the `IApplicationDbContext` port.
-- **SQLite** (local dev) and **Azure SQL Server** (production) — the same code runs on both via a
+- **SQLite** (local dev) and **PostgreSQL on Neon** (production) — the same code runs on both via a
   config-driven provider switch (`Database:Provider`). A value converter stores `DateTimeOffset` as UTC
   ticks so SQLite can sort and compare them.
 
@@ -66,8 +66,12 @@ See the [testing guide](../development/testing.md) for how the suites are set up
 ## Hosting — Azure
 
 - **Azure App Service (Linux)** — hosts the .NET API (`taskboard-06-api`).
-- **Azure SQL (serverless)** — the database; **passwordless** access via the app's managed identity. It
-  auto-pauses when idle, which is why the app has cold-start retry handling.
+- **PostgreSQL on Neon (serverless)** — the database; the connection string lives in Key Vault and
+  is read via the app's managed identity. Neon suspends an idle compute after ~5 minutes and
+  resumes in about a second, which the app's retry handling absorbs. (Azure SQL remains a
+  supported provider — `Database:Provider=SqlServer` — and was the original production database;
+  Neon replaced it because Azure SQL serverless bills a 60-minute minimum per wake, ~55 wakes a
+  month on the free allowance.)
 - **Azure Static Web Apps** — hosts the built React SPA (`salmon-field`), with PR preview environments.
 - **Managed identity** — gives the app passwordless access to both SQL and Key Vault, so no database
   credentials are stored anywhere.

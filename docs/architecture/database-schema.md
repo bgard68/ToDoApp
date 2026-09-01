@@ -8,7 +8,7 @@ EF Core generates it from the entities in `src/TodoApp.Domain/Entities` and the 
 `src/TodoApp.Infrastructure/Persistence/Configurations`, so this document is a readable mirror of
 that source, not a hand-maintained DDL script.
 
-The same model runs on **SQLite** (dev) and **Azure SQL / SQL Server** (prod) via a config-driven
+The same model runs on **SQLite** (dev) and **PostgreSQL** (prod — Neon; SQL Server also supported) via a config-driven
 provider switch — see [database portability](database-portability.md) for the provider differences
 this schema deliberately accommodates.
 
