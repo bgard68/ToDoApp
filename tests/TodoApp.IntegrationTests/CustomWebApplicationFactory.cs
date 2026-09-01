@@ -51,6 +51,9 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>
         new("RateLimiting:Global:PermitLimit", "10000"),
         new("Seed:DemoUser", "false"),
         new("PasswordBreachCheck:Enabled", "false"),
+        // Each test host gets a fresh throwaway database, so it always needs the schema created.
+        // Deployed environments ship this off so a redeploy never wakes a paused database.
+        new("Database:InitializeOnStartup", "true"),
     ];
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)

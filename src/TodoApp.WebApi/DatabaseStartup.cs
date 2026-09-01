@@ -28,11 +28,12 @@ public static class DatabaseStartup
         DemoSeedOptions demoSeed,
         ILogger logger,
         TimeSpan retryDelay,
-        int maxRetryAttempts)
+        int maxRetryAttempts,
+        bool ensureCreated = true)
     {
         try
         {
-            await InitializeOnceAsync(services, demoSeed);
+            await InitializeOnceAsync(services, demoSeed, ensureCreated);
             return null;
         }
         catch (Exception ex)
@@ -42,11 +43,12 @@ public static class DatabaseStartup
                 "It will be retried in the background.");
 
             return Task.Run(() => RetryAsync(
-                services, demoSeed, logger, retryDelay, maxRetryAttempts));
+                services, demoSeed, logger, retryDelay, maxRetryAttempts, ensureCreated));
         }
     }
 
-    private static async Task InitializeOnceAsync(IServiceProvider services, DemoSeedOptions demoSeed)
+    private static async Task InitializeOnceAsync(
+        IServiceProvider services, DemoSeedOptions demoSeed, bool ensureCreated = true)
     {
         using var scope = services.CreateScope();
         var scoped = scope.ServiceProvider;
@@ -55,7 +57,8 @@ public static class DatabaseStartup
             scoped.GetRequiredService<ApplicationDbContext>(),
             scoped.GetRequiredService<IPasswordHasher>(),
             scoped.GetRequiredService<IDateTimeProvider>(),
-            demoSeed);
+            demoSeed,
+            ensureCreated);
     }
 
     private static async Task RetryAsync(
@@ -63,7 +66,8 @@ public static class DatabaseStartup
         DemoSeedOptions demoSeed,
         ILogger logger,
         TimeSpan retryDelay,
-        int maxRetryAttempts)
+        int maxRetryAttempts,
+        bool ensureCreated = true)
     {
         for (var attempt = 1; attempt <= maxRetryAttempts; attempt++)
         {
@@ -71,7 +75,7 @@ public static class DatabaseStartup
 
             try
             {
-                await InitializeOnceAsync(services, demoSeed);
+                await InitializeOnceAsync(services, demoSeed, ensureCreated);
                 logger.LogInformation(
                     "Database initialization completed on background attempt {Attempt}.", attempt);
                 return;
