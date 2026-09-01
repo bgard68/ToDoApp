@@ -113,6 +113,17 @@ PRINCIPAL_ID=$(az webapp identity show -g $RG -n $API_APP --query principalId -o
 
 ## Phase 4 — Azure SQL (passwordless)
 
+> **The deployed database is now Postgres on [Neon](https://neon.com)** — see
+> [cold starts](cold-starts.md#why-the-database-moved-to-neon) for why (Azure SQL serverless
+> bills a full hour per wake; ~55 wakes exhaust the free month). Setup is: create a free Neon
+> project (no credit card), copy the pooled connection string, store it in Key Vault as
+> `ConnectionStrings--DefaultConnection` in the form
+> `Host=<host>;Database=<db>;Username=<user>;Password=<pw>;SSL Mode=Require;Trust Server Certificate=true;Timeout=30;Command Timeout=60`,
+> and set `Database__Provider=Postgres`. For the first boot only, set
+> `Database__InitializeOnStartup=true` so the schema is created, then turn it back off.
+> The section below provisions **Azure SQL instead** — still fully supported
+> (`Database__Provider=SqlServer`), and how this app originally ran.
+
 The app runs on SQLite by default; setting `Database__Provider=SqlServer` plus a connection string
 switches it to **Azure SQL** with no code change (the provider is chosen in `AddInfrastructure`). Create
 an Entra-only SQL server (you as admin), the database, and open the firewall so you can run the grant.

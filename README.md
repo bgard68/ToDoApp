@@ -24,9 +24,9 @@ is a React (Vite) single-page app.
   own (or use Google sign-in) for a private board with its own starter categories.</sub>
 </p>
 
-> The demo runs on free Azure tiers. The API is kept warm by an uptime monitor, but the
-> serverless database pauses when idle — so the first sign-in after a quiet spell can take
-> ~30–60s while it resumes, showing "Waking the server up…". See
+> The demo runs on free tiers. The API is kept warm by an uptime monitor, and the database
+> (Postgres on Neon) suspends when idle but resumes in a second or two — so the first sign-in
+> after a quiet spell may pause briefly, showing "Waking the server up…" at worst. See
 > [cold starts](docs/deployment/cold-starts.md).
 
 ## Highlights
@@ -56,10 +56,10 @@ is a React (Vite) single-page app.
 
 - **Backend:** .NET 10 · ASP.NET Core Minimal APIs · Clean Architecture + CQRS (MediatR) · FluentValidation · EF Core 10 · Swagger
 - **Frontend:** React 18 · Vite 5 · custom hooks · `fetch`-based API client · Google Identity Services
-- **Data:** SQLite (dev) / Azure SQL (prod) via a config-driven provider switch
+- **Data:** SQLite (dev) / PostgreSQL on Neon (prod) via a config-driven provider switch (SQL Server also supported)
 - **Auth:** JWT · refresh-token rotation + reuse detection · security-stamp revocation · PBKDF2 · Google sign-in · Key Vault
 - **Testing:** Vitest + React Testing Library (frontend) · xUnit + FluentAssertions + `WebApplicationFactory` (backend)
-- **Hosting & CI/CD:** Azure App Service · Azure SQL · Static Web Apps · GitHub Actions (OIDC)
+- **Hosting & CI/CD:** Azure App Service · Neon Postgres · Static Web Apps · GitHub Actions (OIDC)
 
 → See the **[full tech-stack reference](docs/architecture/tech-stack.md)** for a one-line explanation of what each piece does and why it's there.
 
@@ -86,7 +86,7 @@ implements, so the core has no direct dependency on EF Core or ASP.NET.
 
 Solid arrows are the request/data flow; the dashed arrow is **dependency inversion** — the
 Application defines `IApplicationDbContext`, and Infrastructure implements it, which is why
-the same handlers run unchanged on SQLite locally and Azure SQL in production. For a worked
+the same handlers run unchanged on SQLite locally and Postgres in production. For a worked
 trace of one request end to end, see the **[request-flow walkthrough](docs/architecture/request-flow.md)**.
 
 ## Quick start
@@ -138,7 +138,7 @@ with the **[Azure guide](docs/deployment/azure.md)**.
 
 **Deployment & operations** — [`docs/deployment/`](docs/deployment/)
 
-- **[Azure guide](docs/deployment/azure.md)** — **start-to-finish Azure deploy**: one ordered pass from an empty subscription to a working deployment (App Service, passwordless Azure SQL, Static Web Apps, Google sign-in, CORS, Key Vault), plus the env-var reference and verification checklist.
+- **[Azure guide](docs/deployment/azure.md)** — **start-to-finish Azure deploy**: one ordered pass from an empty subscription to a working deployment (App Service, Postgres on Neon, Static Web Apps, Google sign-in, CORS, Key Vault), plus the env-var reference and verification checklist.
 - **[Infrastructure scripts](infra/README.md)** — provision / export / re-import the Azure stack as code (Bash + PowerShell): stand up the environment, capture an existing one to ARM/Bicep + app settings + Key Vault secret *names*, and rebuild a clone in one command. The IaC counterpart to the Azure guide.
 - **[Deployment overview](docs/deployment/overview.md)** — build, compile, and deploy anywhere (Docker Compose, Linux + nginx, Azure), with the included Dockerfiles and compose samples, plus production hardening.
 - **[Google sign-in](docs/deployment/google-signin.md)** — end-to-end Google sign-in setup: Cloud project, consent screen, OAuth client, wiring the client ID into the frontend and backend, and troubleshooting.
@@ -146,7 +146,7 @@ with the **[Azure guide](docs/deployment/azure.md)**.
 - **[Troubleshooting log](docs/deployment/troubleshooting-log.md)** — a chronological post-mortem of getting the API + Key Vault working on Azure: every symptom, how the logs were read (Kudu VFS API, `docker.log`), the root-cause chain, the clean rebuild, and every command used.
 - **[Pipeline testing & error handling](docs/deployment/pipeline.md)** — how the GitHub Actions pipeline is structured, how fail-fast + notifications stop a broken build from deploying, the "Verify publish output" guard, and how to test all of it.
 - **[Secret hygiene](docs/deployment/secret-hygiene.md)** — how Azure/app secrets are kept out of git: the hardened `.gitignore`, gitleaks scanning (pre-commit + a CI gate on every push/PR), what's tracked vs. ignored, and the audit confirming the tree and full history are clean.
-- **[Cold starts on the free tier](docs/deployment/cold-starts.md)** — why the first request after idle is slow (App Service + serverless SQL waking), why you may see 502/503/504, and the three mitigations: server-side DB retry, the client `wakeFetch` retry that shows "Waking the server up…", and the keep-warm ping (an external uptime monitor, with a GitHub Action as backup).
+- **[Cold starts on the free tier](docs/deployment/cold-starts.md)** — why the first request after idle is slow (App Service + a suspended database waking), why you may see 502/503/504, and the three mitigations: server-side DB retry, the client `wakeFetch` retry that shows "Waking the server up…", and the keep-warm ping (an external uptime monitor, with a GitHub Action as backup).
 
 **Architecture & design** — [`docs/architecture/`](docs/architecture/)
 

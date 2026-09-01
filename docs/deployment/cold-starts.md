@@ -1,10 +1,13 @@
 # Cold starts on the free tier — why the first request is slow, and how the app handles it
 
-Both halves of the deployment run on Azure's **free** tiers, and both **sleep** when
-idle — so the *first* request after a quiet spell can take ~30–60s while things wake up.
-That's expected on the free plan, not a bug. This explains exactly why it happens, what
-you'll see, and the three things the app does so it degrades gracefully instead of looking
-broken.
+Both halves of the deployment run on **free** tiers, and both **sleep** when idle — so
+the *first* request after a quiet spell pays a wake-up cost. That's expected on the free
+plan, not a bug. This explains exactly why it happens, what you'll see, and the three
+things the app does so it degrades gracefully instead of looking broken.
+
+> **Since 2026-09: the database is Postgres on Neon**, and its share of the cold start is
+> now a second or two instead of 30–60s. The reason for the switch is at the
+> [bottom of this page](#why-the-database-moved-to-neon).
 
 > **← Back to the main [README](../../README.md).**
 
@@ -12,9 +15,11 @@ broken.
 
 1. **App Service (Linux F1 Free)** unloads the API after ~20 minutes of inactivity. The
    next request has to reload the .NET app — an app **cold start**.
-2. **Azure SQL serverless** auto-pauses the database after its idle delay (60 min here).
-   The first query after a pause has to **resume** the database (transient errors `-2` /
-   `40613`, ~30–60s) before it can answer.
+2. **Neon Postgres** suspends its compute after **~5 minutes** idle (scale-to-zero). The
+   first query after that has to **resume** it — measured at **~1–2s**, absorbed by the
+   retry below and usually invisible. (The previous database, Azure SQL serverless, paused
+   after 60 min and took **30–60s** to resume — see
+   [why the database moved](#why-the-database-moved-to-neon).)
 
 They're independent: a request can hit a warm app but a paused DB, a cold app with a warm
 DB, or both cold. The free tiers trade this first-hit latency for $0 cost — the right deal
@@ -37,9 +42,12 @@ A **500** is different — the app is up but threw an error — so the app delib
 
 ### 1. Server-side database resilience (already in place)
 
-The API is hardened against the SQL cold start: EF Core **`EnableRetryOnFailure`** (retries
-the transient `-2`), a longer **`Connect Timeout`**, and **non-blocking startup/seeding** —
-so a waking database surfaces as a slightly delayed success rather than a 500. See
+The API is hardened against the database cold start: EF Core **`EnableRetryOnFailure`**
+(Npgsql classifies a resuming compute's connection failures as transient on its own), longer
+timeouts in the connection string, and **non-blocking startup/seeding** — so a waking
+database surfaces as a slightly delayed success rather than a 500. Schema creation at boot
+is **opt-in** (`Database:InitializeOnStartup`, default off in deployed environments) so a
+redeploy never wakes the database just to check a schema that already exists. See
 [Lessons — Database](../lessons.md#database-sqlite-vs-azure-sql) and the
 [production-500 triage](../lessons.md#diagnosing-a-500--failed-request-in-production).
 
@@ -61,8 +69,8 @@ Something pings the API **root** (`/`, a static `{"status":"ok"}` payload) every
 the F1 App Service instance stays loaded and visitors rarely hit an app cold start.
 
 **App-only, by design.** The ping loads the app but runs **no database query**, so it does
-**not** keep the serverless DB awake and does **not** burn the Azure SQL **free-limit**
-vCore-seconds. The residual DB cold start is covered by #1 and #2 above.
+**not** keep the database awake and does **not** burn Neon's free compute allowance. The
+residual DB resume (~1–2s) is covered by #1 and #2 above.
 
 #### Why the GitHub Action is not the primary
 
@@ -117,7 +125,7 @@ It uses the repo Actions **Variable `VITE_API_URL`** and skips cleanly if that's
 | UptimeRobot free plan | 1 of 50 monitors, 5-min interval allowed | Free |
 | F1 CPU (~60 CPU-min/day) | ~430 static responses/day — a few CPU-seconds | Far under |
 | F1 bandwidth (165 MB/day) | ~430 × ~1 KB ≈ 0.5 MB/day | Far under |
-| Azure SQL free limit (100k vCore-sec/mo) | Ping never touches the DB | Untouched |
+| Neon free compute (100 CU-hrs/mo) | Ping never touches the DB | Untouched |
 
 On a **private** repo the Action's ~144 runs/day would round up to ~4,320 minutes/month against
 the 2,000 free — there, drop the backup and keep only the external monitor.
@@ -130,6 +138,29 @@ the 2,000 free — there, drop the backup and keep only the external monitor.
 - **Turn the backup off** — delete `keep-warm.yml` (or disable it in the Actions tab) once the
   external monitor is running. The client-side retry (#2) still handles what gets through.
 - **Eliminate cold starts entirely (costs money)** — move App Service to **B1** and enable
-  **Always On** (removes the *app* cold start), and disable SQL serverless auto-pause (removes
-  the *DB* cold start). Both incur ongoing cost and lose the free/serverless savings, so
-  they're unnecessary for a demo.
+  **Always On** (removes the *app* cold start), and move Neon to a paid plan with scale-to-zero
+  disabled (removes the *DB* resume). Both incur ongoing cost, and with the DB resume already
+  at ~1–2s there is little left to buy.
+
+## Why the database moved to Neon
+
+The original production database was **Azure SQL serverless** on its free offer
+(100,000 vCore-seconds/month). The problem is billing **granularity**, not the size of the
+allowance:
+
+- Azure SQL bills a minimum while awake and its auto-pause delay floors at **60 minutes** —
+  so *every* wake costs a full hour: **~1,800 vCore-seconds**, no matter how brief the visit.
+- 100,000 ÷ 1,800 ≈ **55 wakes a month** — fewer than two demo visits a day. August 2026
+  closed at **98,554 of 100,000** consumed.
+- Worse, most of those wakes were not visitors: schema initialization ran on every boot, so
+  **every deploy and instance recycle spent an hour of database time** (fixed at the same
+  time by making startup schema creation opt-in).
+- On exhaustion the database **pauses until the next month** — the demo's sign-in would
+  simply go dark for days.
+
+**Neon Postgres** (free plan) bills the minutes the compute actually runs, suspends after
+5 minutes idle, resumes in ~1–2s (measured), and on exhaustion suspends rather than bills.
+The same monthly allowance that bought ~55 Azure SQL wakes buys thousands of Neon visits,
+and the resume dropped from 30–60s to under the threshold anyone notices. The provider
+switch was config-only (`Database:Provider=Postgres`); Azure SQL remains supported and was
+kept untouched as the rollback during cutover.
