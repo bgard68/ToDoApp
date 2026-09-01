@@ -29,11 +29,11 @@ public static class DatabaseStartup
         ILogger logger,
         TimeSpan retryDelay,
         int maxRetryAttempts,
-        bool ensureCreated = true)
+        bool initializeOnStartup = true)
     {
         try
         {
-            await InitializeOnceAsync(services, demoSeed, ensureCreated);
+            await InitializeOnceAsync(services, demoSeed, initializeOnStartup);
             return null;
         }
         catch (Exception ex)
@@ -43,12 +43,12 @@ public static class DatabaseStartup
                 "It will be retried in the background.");
 
             return Task.Run(() => RetryAsync(
-                services, demoSeed, logger, retryDelay, maxRetryAttempts, ensureCreated));
+                services, demoSeed, logger, retryDelay, maxRetryAttempts, initializeOnStartup));
         }
     }
 
     private static async Task InitializeOnceAsync(
-        IServiceProvider services, DemoSeedOptions demoSeed, bool ensureCreated = true)
+        IServiceProvider services, DemoSeedOptions demoSeed, bool initializeOnStartup = true)
     {
         using var scope = services.CreateScope();
         var scoped = scope.ServiceProvider;
@@ -58,7 +58,7 @@ public static class DatabaseStartup
             scoped.GetRequiredService<IPasswordHasher>(),
             scoped.GetRequiredService<IDateTimeProvider>(),
             demoSeed,
-            ensureCreated);
+            initializeOnStartup);
     }
 
     private static async Task RetryAsync(
@@ -67,7 +67,7 @@ public static class DatabaseStartup
         ILogger logger,
         TimeSpan retryDelay,
         int maxRetryAttempts,
-        bool ensureCreated = true)
+        bool initializeOnStartup = true)
     {
         for (var attempt = 1; attempt <= maxRetryAttempts; attempt++)
         {
@@ -75,7 +75,7 @@ public static class DatabaseStartup
 
             try
             {
-                await InitializeOnceAsync(services, demoSeed, ensureCreated);
+                await InitializeOnceAsync(services, demoSeed, initializeOnStartup);
                 logger.LogInformation(
                     "Database initialization completed on background attempt {Attempt}.", attempt);
                 return;
