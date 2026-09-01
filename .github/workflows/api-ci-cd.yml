@@ -169,10 +169,10 @@ jobs:
           set -uo pipefail
 
           # Wake first, assert second. Both halves of this stack sleep: the App Service plan
-          # is Free F1, and the SQL database is serverless with a 60-minute auto-pause, so a
-          # deploy after a quiet hour meets a cold app in front of a paused database. The
-          # keep-warm workflow pings "/" every ten minutes, which keeps the app up but never
-          # touches SQL — "/" answers without a query — so the database pauses anyway.
+          # is Free F1, and the database (Postgres on Neon) scales to zero after ~5 minutes
+          # idle, so a deploy after a quiet spell meets a cold app in front of a suspended
+          # compute. The keep-warm ping hits "/" only, which answers without a query, so the
+          # database sleeps regardless of how warm the app is.
           #
           # Waking is therefore expected and is not a failure. Mixing the two would make the
           # deploy fail for being idle, which is the fastest way to teach everyone to rerun a
@@ -194,8 +194,10 @@ jobs:
           echo "Waking the stack"
           wake "app"      180 "$API/" || exit 1
           # Any endpoint that reads the user store will do; the credentials are deliberately
-          # wrong, so this wakes SQL without needing a secret.
-          wake "database" 420 -X POST "$API/api/auth/login"                               -H 'Content-Type: application/json'                               -d '{"email":"smoke-test@invalid.local","password":"deliberately-wrong"}' || exit 1
+          # wrong, so this wakes the database without needing a secret. The budget is generous
+          # relative to Neon's ~1-2s resume: it also covers the app still settling behind it,
+          # and a slow wake is not the failure this step exists to catch.
+          wake "database" 180 -X POST "$API/api/auth/login"                               -H 'Content-Type: application/json'                               -d '{"email":"smoke-test@invalid.local","password":"deliberately-wrong"}' || exit 1
 
           # Awake now, so every answer below is the app's real opinion. No retries here on
           # purpose: a wrong status code is the finding, not something to paper over.

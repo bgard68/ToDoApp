@@ -22,6 +22,11 @@
 # Usage:
 #   ./provision.sh                                  # defaults (matches rg-taskboard)
 #   ENABLE_STORAGE=true ./provision.sh              # also add storage + static site
+#   DB_PROVIDER=sqlserver ./provision.sh            # provision Azure SQL instead of using Neon
+#
+# Database: defaults to DB_PROVIDER=postgres, which creates NO Azure database and instead stores
+# a Neon connection string (prompted, or NEON_CONNECTION_STRING) in Key Vault. Azure SQL remains
+# supported via DB_PROVIDER=sqlserver; docs/deployment/cold-starts.md explains why prod moved.
 #   PROJECT=taskboard LOCATION=centralus ./provision.sh
 #   ./provision.sh --what-if                        # print planned config and exit
 #
@@ -47,7 +52,22 @@ WEBAPP_NAME="${WEBAPP_NAME:-${PROJECT}-api-$RANDOM}"   # must be globally unique
 # "app,linux"; adjust to match your stack, e.g. NODE:20-lts, PYTHON:3.12, JAVA:17.
 RUNTIME="${RUNTIME:-DOTNETCORE:10.0}"   # matches <TargetFramework>net10.0</TargetFramework> (finding L2)
 
-# Azure SQL (General Purpose serverless Gen5 + free limit — matches taskboard DB)
+# Database provider. The deployed app runs Postgres on Neon: Azure SQL serverless bills a
+# 60-minute minimum every time a paused database is woken (the auto-pause floor), which is
+# ~55 wakes per free month, and deploys spent most of them. Neon bills the minutes actually
+# used and resumes in ~1-2s. See docs/deployment/cold-starts.md.
+#
+#   postgres  (default) — no Azure database is created. Supply NEON_CONNECTION_STRING (or be
+#               prompted for it); it is stored in Key Vault and referenced from app settings.
+#   sqlserver           — provisions the Entra-only Azure SQL server + serverless database
+#               below. Still fully supported; this is how the app originally shipped.
+DB_PROVIDER="${DB_PROVIDER:-postgres}"
+if [[ "$DB_PROVIDER" != "postgres" && "$DB_PROVIDER" != "sqlserver" ]]; then
+  echo "DB_PROVIDER must be 'postgres' or 'sqlserver' (got '$DB_PROVIDER')" >&2
+  exit 2
+fi
+
+# Azure SQL (General Purpose serverless Gen5 + free limit) — only used when DB_PROVIDER=sqlserver
 SQL_SERVER_NAME="${SQL_SERVER_NAME:-${PROJECT}-sql-$RANDOM}"  # globally unique
 SQL_DB_NAME="${SQL_DB_NAME:-${PROJECT}}"
 SQL_MAX_VCORES="${SQL_MAX_VCORES:-2}"          # serverless auto-scale ceiling
@@ -98,8 +118,9 @@ Planned deployment
   App Service plan   : $APP_SERVICE_PLAN      (Linux, $APP_SKU)
   Web app            : $WEBAPP_NAME           (runtime $RUNTIME)
   SQL server         : $SQL_SERVER_NAME
-  SQL database       : $SQL_DB_NAME           (GP serverless Gen5, free-limit=$SQL_USE_FREE_LIMIT)
-                       vCores ${SQL_MIN_VCORES}-${SQL_MAX_VCORES}, auto-pause ${SQL_AUTO_PAUSE_MIN}m
+  Database provider  : $DB_PROVIDER $( [[ "$DB_PROVIDER" == "postgres" ]] && echo "(Neon — no Azure database created)" || echo "" )
+  SQL database       : $( [[ "$DB_PROVIDER" == "sqlserver" ]] && echo "$SQL_DB_NAME (GP serverless Gen5, free-limit=$SQL_USE_FREE_LIMIT)" || echo "n/a" )
+                       $( [[ "$DB_PROVIDER" == "sqlserver" ]] && echo "vCores ${SQL_MIN_VCORES}-${SQL_MAX_VCORES}, auto-pause ${SQL_AUTO_PAUSE_MIN}m" || echo "" )
   SQL Entra admin    : ${ENTRA_ADMIN_NAME:-<none found>} ($ENTRA_ADMIN_TYPE)
   SQL auth mode      : Entra-only (no SQL password)
   User-assigned MI   : $UAMI_NAME             (OIDC / CI-CD)
@@ -197,7 +218,27 @@ WEBAPP_PRINCIPAL_ID="$(az webapp identity assign \
   --query principalId -o tsv)"
 ok "Web app ready (system identity: $WEBAPP_PRINCIPAL_ID)"
 
-# ---- 4. Azure SQL server + serverless database (free limit) -----------------
+# ---- 4. Database ------------------------------------------------------------
+if [[ "$DB_PROVIDER" == "postgres" ]]; then
+  # Neon has no Azure CLI and no ARM resource, so there is nothing to create here. The one
+  # input is the pooled connection string, which carries a password and therefore goes to Key
+  # Vault (section 6) rather than into app settings — unlike the Entra-only SQL path below,
+  # which has no credential at all. Read hidden so it never lands in argv, shell history or
+  # CI logs.
+  if [[ -z "${NEON_CONNECTION_STRING:-}" ]]; then
+    log "Neon connection string required (create a free project at https://neon.com)"
+    echo "  Expected form (paste the pooled string reshaped for Npgsql):" >&2
+    echo "  Host=<host>.neon.tech;Database=<db>;Username=<user>;Password=<pw>;SSL Mode=Require;Trust Server Certificate=true;Timeout=30;Command Timeout=60" >&2
+    read -rs -p "  Connection string: " NEON_CONNECTION_STRING
+    echo >&2
+  fi
+  if [[ -z "$NEON_CONNECTION_STRING" ]]; then
+    echo "No connection string supplied; set NEON_CONNECTION_STRING or use DB_PROVIDER=sqlserver" >&2
+    exit 2
+  fi
+  ok "Neon connection string captured (stored in Key Vault below, never in app settings)"
+else
+
 log "Creating Azure SQL server '$SQL_SERVER_NAME'"
 # No --admin-user / --admin-password at all. The server is created with an Entra administrator and
 # SQL authentication disabled outright, which removes the whole class of problems around a
@@ -238,6 +279,7 @@ az sql db create \
   "${FREE_LIMIT_ARGS[@]}" \
   --output none
 ok "SQL database ready (serverless, min ${SQL_MIN_VCORES} / max ${SQL_MAX_VCORES} vCores)"
+fi
 
 # SQL firewall: allow ONLY this App Service's outbound addresses.
 #
@@ -251,6 +293,7 @@ ok "SQL database ready (serverless, min ${SQL_MIN_VCORES} / max ${SQL_MAX_VCORES
 # Note possibleOutboundIpAddresses, not outboundIpAddresses: the former is the full set the app may
 # use within its scale unit. Allow-listing only the current ones produces intermittent failures
 # later, when the app moves and its source IP changes.
+if [[ "$DB_PROVIDER" == "sqlserver" ]]; then
 log "Configuring SQL firewall (App Service outbound IPs only)"
 fw_n=0
 for ip in $(az webapp show -n "$WEBAPP_NAME" -g "$RESOURCE_GROUP" \
@@ -263,6 +306,9 @@ for ip in $(az webapp show -n "$WEBAPP_NAME" -g "$RESOURCE_GROUP" \
     --output none
 done
 ok "Firewall set: $fw_n App Service outbound IP(s); no all-of-Azure rule"
+else
+  ok "No SQL firewall to configure (Neon manages its own network access)"
+fi
 
 # ---- 5. Key Vault + secrets --------------------------------------------------
 log "Creating Key Vault '$KEYVAULT_NAME'"
@@ -282,15 +328,31 @@ az keyvault create \
   --output none
 ok "Key Vault ready (RBAC, soft-delete 90d, purge protection on)"
 
-# Passwordless connection string: the App Service system-assigned managed identity authenticates
-# to SQL, so there is no credential in this value at all (review finding M2). It is therefore not
-# a secret, and does not need Key Vault — it goes straight into app settings below.
+# How the app is told to reach its database differs by provider, and that difference is the
+# whole security story:
+#
+#   sqlserver — the App Service managed identity authenticates to SQL, so this string contains
+#               no credential at all (review finding M2). Not a secret; goes straight into app
+#               settings.
+#   postgres  — Neon authenticates with a username and password, so the string IS a secret. It
+#               goes into Key Vault and app settings carry only a reference. That is a real
+#               step down from passwordless auth, taken deliberately; see
+#               docs/deployment/cold-starts.md for why the database moved.
 SQL_CONNECTION_STRING="Server=tcp:${SQL_SERVER_NAME}.database.windows.net,1433;Database=${SQL_DB_NAME};Authentication=Active Directory Default;Encrypt=True;TrustServerCertificate=False;Connect Timeout=60;"
 
 # Nothing to store here any more. The old script wrote SqlConnectionString and SqlAdminPassword to
 # the vault; with Entra-only auth neither exists. Jwt--Key remains the one real secret, and is
 # managed outside this script.
-ok "No SQL secrets to store (passwordless via managed identity)"
+if [[ "$DB_PROVIDER" == "postgres" ]]; then
+  # The Neon string carries a password, so it is a real secret and belongs in the vault. Written
+  # via --value from a shell variable that was read hidden, so it never appears in argv of an
+  # interactive shell's history nor in this script's output.
+  az keyvault secret set     --vault-name "$KEYVAULT_NAME"     --name "ConnectionStrings--DefaultConnection"     --value "$NEON_CONNECTION_STRING"     --output none
+  unset NEON_CONNECTION_STRING
+  ok "Neon connection string stored in Key Vault (app settings reference it, never hold it)"
+else
+  ok "No SQL secrets to store (passwordless via managed identity)"
+fi
 
 log "Granting identities access to Key Vault secrets"
 # App runtime (system-assigned) + the user-assigned/CI identity get read access.
@@ -410,7 +472,19 @@ log "Configuring web app settings"
 # whole app sharing 200 requests a minute and 10 sign-ins a minute. Nothing in a log explains it;
 # requests simply start returning 429. It is safe to trust here because only the LAST entry of
 # X-Forwarded-For is read, and that entry is the one App Service appended itself.
-APP_SETTINGS=("ConnectionStrings__DefaultConnection=${SQL_CONNECTION_STRING}" "Database__Provider=SqlServer" "RateLimiting__TrustForwardedFor=true")
+if [[ "$DB_PROVIDER" == "postgres" ]]; then
+  APP_SETTINGS=(
+    "ConnectionStrings__DefaultConnection=@Microsoft.KeyVault(VaultName=${KEYVAULT_NAME};SecretName=ConnectionStrings--DefaultConnection)"
+    "Database__Provider=Postgres"
+    # Schema creation is opt-in and OFF by default: on a scale-to-zero database, opening a
+    # connection IS the wake-up, so an unconditional check makes every redeploy pay for one.
+    # Turn it on for the single deploy that creates or changes the schema.
+    "Database__InitializeOnStartup=false"
+    "RateLimiting__TrustForwardedFor=true"
+  )
+else
+  APP_SETTINGS=("ConnectionStrings__DefaultConnection=${SQL_CONNECTION_STRING}" "Database__Provider=SqlServer" "RateLimiting__TrustForwardedFor=true")
+fi
 if [[ "$ENABLE_STORAGE" == "true" ]]; then
   APP_SETTINGS+=("StorageConnectionString=@Microsoft.KeyVault(VaultName=${KEYVAULT_NAME};SecretName=StorageConnectionString)")
 fi
@@ -454,8 +528,7 @@ cat <<EOF
 Resources created in resource group: $RESOURCE_GROUP
 ------------------------------------------------------------
   Web app URL        : https://${WEBAPP_NAME}.azurewebsites.net
-  SQL server FQDN    : ${SQL_SERVER_NAME}.database.windows.net
-  SQL database       : $SQL_DB_NAME  (serverless, free-limit=$SQL_USE_FREE_LIMIT)
+  Database           : $( [[ "$DB_PROVIDER" == "postgres" ]] && echo "Neon Postgres (connection string in Key Vault)" || echo "${SQL_SERVER_NAME}.database.windows.net / $SQL_DB_NAME (serverless, free-limit=$SQL_USE_FREE_LIMIT)" )
   User-assigned MI   : $UAMI_NAME  (clientId $UAMI_CLIENT_ID)
   Key Vault          : $KEYVAULT_NAME
 $( [[ "$ENABLE_STORAGE" == "true" ]] && echo "  Static website URL : $STATIC_WEB_URL" )
