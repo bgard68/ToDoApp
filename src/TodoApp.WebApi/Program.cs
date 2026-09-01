@@ -224,7 +224,9 @@ if (app.Environment.IsDevelopment())
 }
 else
 {
-    app.MapGet("/", () => Results.Ok(new { status = "ok" }))
+    // GET *and* HEAD: uptime monitors and platform probes default to HEAD, and a health
+    // endpoint that answers 405 to the probe watching it cannot report bad news.
+    app.MapMethods("/", new[] { "GET", "HEAD" }, () => Results.Ok(new { status = "ok" }))
        .ExcludeFromDescription();
 }
 
