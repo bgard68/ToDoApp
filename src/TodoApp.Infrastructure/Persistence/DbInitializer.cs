@@ -17,9 +17,18 @@ public static class DbInitializer
         ApplicationDbContext context,
         IPasswordHasher passwordHasher,
         IDateTimeProvider dateTime,
-        DemoSeedOptions? seed = null)
+        DemoSeedOptions? seed = null,
+        bool ensureCreated = true)
     {
-        await context.Database.EnsureCreatedAsync();
+        // Creating the schema means opening a connection, and on a serverless database that
+        // connection IS the wake-up — billed as a full minimum interval whether or not anybody
+        // visits. Left unconditional, every deploy and every instance recycle spends that. So the
+        // schema check is opt-in: turn it on for the deploy that creates or changes the schema,
+        // and leave it off so routine restarts cost nothing.
+        if (ensureCreated)
+        {
+            await context.Database.EnsureCreatedAsync();
+        }
 
         // Seeding is opt-in. Without this guard a fresh production database would come up with a
         // known-credential account (review finding H1).

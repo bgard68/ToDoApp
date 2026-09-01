@@ -14,8 +14,10 @@ public static class DependencyInjection
         this IServiceCollection services,
         IConfiguration configuration)
     {
-        // Provider is chosen by config so the same build runs on SQLite locally and Azure SQL
-        // (SQL Server) in production — set Database:Provider=SqlServer + a connection string.
+        // Provider is chosen by config so the same build runs on SQLite locally and a managed
+        // Postgres (Neon) or Azure SQL in production — set Database:Provider plus a connection
+        // string. Postgres is the deployed default: its compute bills by the minute rather than
+        // charging a full hour every time a paused instance wakes.
         var provider = configuration.GetValue<string>("Database:Provider") ?? "Sqlite";
 
         services.AddDbContext<ApplicationDbContext>(options =>
@@ -32,6 +34,21 @@ public static class DependencyInjection
                     maxRetryCount: 8,
                     maxRetryDelay: TimeSpan.FromSeconds(15),
                     errorNumbersToAdd: new[] { -2 }));
+            }
+            else if (provider.Equals("Postgres", StringComparison.OrdinalIgnoreCase)
+                  || provider.Equals("PostgreSql", StringComparison.OrdinalIgnoreCase))
+            {
+                var npgConnection = configuration.GetConnectionString("DefaultConnection")
+                    ?? throw new InvalidOperationException(
+                        "ConnectionStrings:DefaultConnection is required when Database:Provider is Postgres.");
+                // Retry transient failures the same way the SQL Server path does. Neon suspends an
+                // idle compute after five minutes, so the first connection after a quiet spell can
+                // fail while it resumes; Npgsql's execution strategy already classifies those
+                // connection errors as transient, so no extra error codes are needed here.
+                options.UseNpgsql(npgConnection, npgsql => npgsql.EnableRetryOnFailure(
+                    maxRetryCount: 8,
+                    maxRetryDelay: TimeSpan.FromSeconds(15),
+                    errorCodesToAdd: null));
             }
             else
             {
