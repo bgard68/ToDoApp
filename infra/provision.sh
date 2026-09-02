@@ -38,6 +38,25 @@
 # -----------------------------------------------------------------------------
 set -euo pipefail
 
+# ---- Adoption of existing resources -----------------------------------------
+# Several names below must be globally unique and so default to a $RANDOM suffix.
+# Applied blindly to a group that already holds this stack they describe a SECOND
+# stack: the live environment runs taskboard-06-api on ASP-rgtaskboard-a1a3, names
+# no default here would ever reproduce. Every re-run would leave the running app
+# untouched and bill for a duplicate beside it -- so discovery (below) replaces the
+# defaults with whatever the group actually holds.
+#
+# A name passed in explicitly always wins over discovery, so record which ones the
+# caller pinned BEFORE the defaults overwrite the distinction.
+ADOPT_EXISTING="${ADOPT_EXISTING:-true}"   # false = always use the generated names
+APP_SERVICE_PLAN_PINNED="${APP_SERVICE_PLAN+yes}"
+WEBAPP_NAME_PINNED="${WEBAPP_NAME+yes}"
+SQL_SERVER_NAME_PINNED="${SQL_SERVER_NAME+yes}"
+SQL_DB_NAME_PINNED="${SQL_DB_NAME+yes}"
+UAMI_NAME_PINNED="${UAMI_NAME+yes}"
+KEYVAULT_NAME_PINNED="${KEYVAULT_NAME+yes}"
+STORAGE_ACCOUNT_PINNED="${STORAGE_ACCOUNT+yes}"
+
 # ---- Configuration (override via env vars) ----------------------------------
 PROJECT="${PROJECT:-taskboard}"                # short name, lowercase letters/digits
 ENVIRONMENT="${ENVIRONMENT:-prod}"            # dev | test | prod
@@ -77,8 +96,11 @@ SQL_USE_FREE_LIMIT="${SQL_USE_FREE_LIMIT:-true}"  # Azure SQL free offer (1 per 
 # Azure SQL is created with ENTRA-ONLY authentication — no SQL login, no password, nothing to
 # leak or rotate (review findings M2/M4). Defaults to the signed-in user as the server's Entra
 # administrator; override to hand it to a group instead.
-ENTRA_ADMIN_NAME="${ENTRA_ADMIN_NAME:-$(az ad signed-in-user show --query userPrincipalName -o tsv 2>/dev/null)}"
-ENTRA_ADMIN_SID="${ENTRA_ADMIN_SID:-$(az ad signed-in-user show --query id -o tsv 2>/dev/null)}"
+# '|| true' matters under 'set -e': as a service principal (any CI run) the lookup
+# exits non-zero, and the assignment would take that status and kill the script
+# here -- with no message, before the Neon path that needs no admin ever starts.
+ENTRA_ADMIN_NAME="${ENTRA_ADMIN_NAME:-$(az ad signed-in-user show --query userPrincipalName -o tsv 2>/dev/null || true)}"
+ENTRA_ADMIN_SID="${ENTRA_ADMIN_SID:-$(az ad signed-in-user show --query id -o tsv 2>/dev/null || true)}"
 ENTRA_ADMIN_TYPE="${ENTRA_ADMIN_TYPE:-User}"   # User | Group | Application
 
 # User-assigned managed identity (the live env has oidc-msi-* identities for CI/CD)
@@ -108,6 +130,88 @@ TAGS="project=${PROJECT} environment=${ENVIRONMENT} managedBy=provision.sh"
 log()  { printf '\n\033[1;34m==>\033[0m %s\n' "$*"; }
 ok()   { printf '\033[1;32m  ✓\033[0m %s\n' "$*"; }
 
+# ---- Discovery ---------------------------------------------------------------
+# Ask the resource group what it already holds and adopt those names. Three rules
+# keep that honest:
+#   - a name passed in explicitly is never overridden (the caller has decided);
+#   - exactly one match is adopted;
+#   - more than one is an error, not a guess. rg-taskboard holds two managed
+#     identities (oidc-msi-8552, oidc-msi-ac8b); picking one would silently wire
+#     CI to an identity the caller never named.
+ADOPT_NOTES=()
+
+adopt() {
+  local label="$1" var="$2" pinned="$3" list="$4"
+  local count name
+  list="$(printf '%s\n' "$list" | sed '/^[[:space:]]*$/d')"
+  count="$(printf '%s\n' "$list" | grep -c . || true)"
+
+  if [[ -n "$pinned" ]]; then
+    ADOPT_NOTES+=("$label: pinned to '${!var}' by the caller")
+    return 0
+  fi
+  if (( count == 0 )); then
+    ADOPT_NOTES+=("$label: none in the group — will create '${!var}'")
+    return 0
+  fi
+  if (( count > 1 )); then
+    echo "ERROR: '$RESOURCE_GROUP' holds $count resources of type: $label" >&2
+    printf '         %s\n' $list >&2
+    echo "       Which one this stack uses cannot be inferred. Pin it with ${var}=<name>," >&2
+    echo "       or set ADOPT_EXISTING=false to create a new one alongside them." >&2
+    exit 1
+  fi
+  name="$list"
+  printf -v "$var" '%s' "$name"
+  ADOPT_NOTES+=("$label: adopted existing '$name'")
+}
+
+discover_existing() {
+  if [[ "$ADOPT_EXISTING" != "true" ]]; then
+    ADOPT_NOTES+=("discovery disabled (ADOPT_EXISTING=false) — using generated names")
+    return 0
+  fi
+  if ! az group show --name "$RESOURCE_GROUP" >/dev/null 2>&1; then
+    ADOPT_NOTES+=("resource group '$RESOURCE_GROUP' does not exist yet — nothing to adopt")
+    return 0
+  fi
+
+  adopt "App Service plan" APP_SERVICE_PLAN "$APP_SERVICE_PLAN_PINNED" \
+    "$(az appservice plan list -g "$RESOURCE_GROUP" --query "[].name" -o tsv 2>/dev/null)"
+  adopt "web app" WEBAPP_NAME "$WEBAPP_NAME_PINNED" \
+    "$(az webapp list -g "$RESOURCE_GROUP" --query "[?!contains(kind,'functionapp')].name" -o tsv 2>/dev/null)"
+  adopt "Key Vault" KEYVAULT_NAME "$KEYVAULT_NAME_PINNED" \
+    "$(az keyvault list -g "$RESOURCE_GROUP" --query "[].name" -o tsv 2>/dev/null)"
+  adopt "user-assigned managed identity" UAMI_NAME "$UAMI_NAME_PINNED" \
+    "$(az identity list -g "$RESOURCE_GROUP" --query "[].name" -o tsv 2>/dev/null)"
+
+  # Only the sqlserver path has an Azure database to find. On Neon there is no ARM
+  # resource to discover at all, which is the point of that provider.
+  if [[ "$DB_PROVIDER" == "sqlserver" ]]; then
+    adopt "SQL server" SQL_SERVER_NAME "$SQL_SERVER_NAME_PINNED" \
+      "$(az sql server list -g "$RESOURCE_GROUP" --query "[].name" -o tsv 2>/dev/null)"
+    # 'master' is always present and is never the application database.
+    if az sql server show -n "$SQL_SERVER_NAME" -g "$RESOURCE_GROUP" >/dev/null 2>&1; then
+      adopt "SQL database" SQL_DB_NAME "$SQL_DB_NAME_PINNED" \
+        "$(az sql db list -g "$RESOURCE_GROUP" -s "$SQL_SERVER_NAME" --query "[?name!='master'].name" -o tsv 2>/dev/null)"
+    fi
+  fi
+
+  if [[ "$ENABLE_STORAGE" == "true" ]]; then
+    adopt "storage account" STORAGE_ACCOUNT "$STORAGE_ACCOUNT_PINNED" \
+      "$(az storage account list -g "$RESOURCE_GROUP" --query "[].name" -o tsv 2>/dev/null)"
+  fi
+}
+
+print_adoption() {
+  local note
+  echo "Existing resources"
+  echo "------------------------------------------------------------"
+  for note in ${ADOPT_NOTES[@]+"${ADOPT_NOTES[@]}"}; do printf '  %s\n' "$note"; done
+  echo "------------------------------------------------------------"
+  echo
+}
+
 STORAGE_ACCOUNT="$(echo "$STORAGE_ACCOUNT" | tr -cd 'a-z0-9' | cut -c1-24)"
 
 print_plan() {
@@ -117,7 +221,7 @@ Planned deployment
   Resource group     : $RESOURCE_GROUP        ($LOCATION)
   App Service plan   : $APP_SERVICE_PLAN      (Linux, $APP_SKU)
   Web app            : $WEBAPP_NAME           (runtime $RUNTIME)
-  SQL server         : $SQL_SERVER_NAME
+  SQL server         : $( [[ "$DB_PROVIDER" == "sqlserver" ]] && echo "$SQL_SERVER_NAME" || echo "n/a (Neon — none created)" )
   Database provider  : $DB_PROVIDER $( [[ "$DB_PROVIDER" == "postgres" ]] && echo "(Neon — no Azure database created)" || echo "" )
   SQL database       : $( [[ "$DB_PROVIDER" == "sqlserver" ]] && echo "$SQL_DB_NAME (GP serverless Gen5, free-limit=$SQL_USE_FREE_LIMIT)" || echo "n/a" )
                        $( [[ "$DB_PROVIDER" == "sqlserver" ]] && echo "vCores ${SQL_MIN_VCORES}-${SQL_MAX_VCORES}, auto-pause ${SQL_AUTO_PAUSE_MIN}m" || echo "" )
@@ -132,11 +236,12 @@ Planned deployment
 EOF
 }
 
+WHAT_IF=0
 case "${1:-}" in
   -h|--help)
     grep '^#' "$0" | sed 's/^#//'; exit 0;;
   --what-if|--dry-run)
-    print_plan; echo "(--what-if) No resources created."; exit 0;;
+    WHAT_IF=1;;
   "")
     ;;
   *)
@@ -146,14 +251,28 @@ case "${1:-}" in
 esac
 
 # ---- Preflight ---------------------------------------------------------------
+# --what-if signs in and runs discovery before printing. A preview that showed the
+# generated names while the real run adopted the group's existing ones would
+# describe a deployment that never happens. It still creates nothing.
 command -v az >/dev/null 2>&1 || { echo "ERROR: Azure CLI (az) not found." >&2; exit 1; }
 az account show >/dev/null 2>&1 || { echo "ERROR: Not logged in. Run 'az login'." >&2; exit 1; }
 
 SUBSCRIPTION_ID="$(az account show --query id -o tsv)"
+
+discover_existing
 print_plan
+print_adoption
+
+if (( WHAT_IF )); then
+  echo "(--what-if) No resources created."
+  exit 0
+fi
+
 log "Using subscription: $SUBSCRIPTION_ID"
 
-if [[ -z "$ENTRA_ADMIN_NAME" || -z "$ENTRA_ADMIN_SID" ]]; then
+# Only the Azure SQL path needs an Entra administrator; requiring one on the Neon
+# path would abort a run that creates no SQL server at all.
+if [[ "$DB_PROVIDER" == "sqlserver" ]] && [[ -z "$ENTRA_ADMIN_NAME" || -z "$ENTRA_ADMIN_SID" ]]; then
   echo "ERROR: could not resolve an Entra administrator for the SQL server." >&2
   echo "       Set ENTRA_ADMIN_NAME and ENTRA_ADMIN_SID, or run 'az login' as a user." >&2
   echo "       An Entra-only server with no Entra admin has nobody who can administer it." >&2

@@ -95,6 +95,11 @@ param(
     [string] $Static404        = '404.html',
     [switch] $NoStaticSample,
 
+    # Discovery: by default the script adopts the names of the resources the group
+    # already holds, so a re-run converges on the live stack instead of building a
+    # second one beside it. -NoAdopt keeps the generated names.
+    [switch] $NoAdopt,
+
     [switch] $WhatIfPlan
 )
 
@@ -109,6 +114,122 @@ if ($StorageAccount.Length -gt 24) { $StorageAccount = $StorageAccount.Substring
 
 $Tags = @{ project = $Project; environment = $Environment; managedBy = 'Provision.ps1' }
 
+# Which names the caller pinned. A pinned name always wins over discovery, and after
+# discovery rewrites the variables this is the only remaining record of the difference.
+$PinnedParams = $PSBoundParameters
+
+# ---- Preflight --------------------------------------------------------------
+# Login and discovery both run before the plan is printed: a preview that showed the
+# generated names while the real run adopted the group's existing ones would describe
+# a deployment that never happens. -WhatIfPlan still creates nothing.
+$ctx = Get-AzContext
+if (-not $ctx) { throw "Not logged in. Run 'Connect-AzAccount'." }
+
+# Only the Azure SQL path needs an Entra administrator. Resolving it on the Neon path
+# would fail a run that creates no SQL server at all -- including any CI run under a
+# service principal, where 'az ad signed-in-user show' cannot succeed.
+if ($DbProvider -eq 'sqlserver') {
+    if (-not $EntraAdminName -or -not $EntraAdminSid) {
+        $me = az ad signed-in-user show -o json 2>$null | ConvertFrom-Json
+        if (-not $EntraAdminName) { $EntraAdminName = $me.userPrincipalName }
+        if (-not $EntraAdminSid)  { $EntraAdminSid  = $me.id }
+    }
+    if (-not $EntraAdminName -or -not $EntraAdminSid) {
+        throw "Could not resolve an Entra administrator. Pass -EntraAdminName and -EntraAdminSid, or run 'az login' as a user."
+    }
+}
+
+# ---- Discovery ---------------------------------------------------------------
+# The name defaults above carry a Get-Random suffix because they must be globally
+# unique. Applied blindly to a group that already holds this stack they describe a
+# SECOND stack: the live environment runs taskboard-06-api on ASP-rgtaskboard-a1a3,
+# names no default here would ever reproduce, so every re-run would leave the running
+# app untouched and bill for a duplicate beside it.
+#
+# Three rules keep adoption honest:
+#   - a name passed in explicitly is never overridden (the caller has decided);
+#   - exactly one match is adopted;
+#   - more than one is an error, not a guess. rg-taskboard holds two managed
+#     identities (oidc-msi-8552, oidc-msi-ac8b); picking one would silently wire CI
+#     to an identity the caller never named.
+$AdoptNotes = @()
+
+function Resolve-ExistingName {
+    param(
+        [string]   $Label,
+        [string]   $ParamName,
+        [string]   $Current,
+        [string[]] $Found
+    )
+
+    $Found = @($Found | Where-Object { $_ })
+
+    if ($PinnedParams.ContainsKey($ParamName)) {
+        $script:AdoptNotes += "${Label}: pinned to '$Current' by the caller"
+        return $Current
+    }
+    if ($Found.Count -eq 0) {
+        $script:AdoptNotes += "${Label}: none in the group - will create '$Current'"
+        return $Current
+    }
+    if ($Found.Count -gt 1) {
+        throw ("'$ResourceGroup' holds $($Found.Count) resources of type: $Label`n" +
+               '         ' + ($Found -join "`n         ") + "`n" +
+               "       Which one this stack uses cannot be inferred. Pin it with -$ParamName <name>,`n" +
+               '       or pass -NoAdopt to create a new one alongside them.')
+    }
+    $script:AdoptNotes += "${Label}: adopted existing '$($Found[0])'"
+    return $Found[0]
+}
+
+if ($NoAdopt) {
+    $AdoptNotes += 'discovery disabled (-NoAdopt) - using generated names'
+}
+elseif (-not (Get-AzResourceGroup -Name $ResourceGroup -ErrorAction SilentlyContinue)) {
+    $AdoptNotes += "resource group '$ResourceGroup' does not exist yet - nothing to adopt"
+}
+else {
+    $AppServicePlan = Resolve-ExistingName 'App Service plan' 'AppServicePlan' $AppServicePlan `
+        @(Get-AzAppServicePlan -ResourceGroupName $ResourceGroup -ErrorAction SilentlyContinue | ForEach-Object Name)
+
+    $WebAppName = Resolve-ExistingName 'web app' 'WebAppName' $WebAppName `
+        @(Get-AzWebApp -ResourceGroupName $ResourceGroup -ErrorAction SilentlyContinue |
+            Where-Object { $_.Kind -notlike '*functionapp*' } | ForEach-Object Name)
+
+    $KeyVaultName = Resolve-ExistingName 'Key Vault' 'KeyVaultName' $KeyVaultName `
+        @(Get-AzKeyVault -ResourceGroupName $ResourceGroup -ErrorAction SilentlyContinue | ForEach-Object VaultName)
+
+    $UamiName = Resolve-ExistingName 'user-assigned managed identity' 'UamiName' $UamiName `
+        @(Get-AzUserAssignedIdentity -ResourceGroupName $ResourceGroup -ErrorAction SilentlyContinue | ForEach-Object Name)
+
+    # Only the sqlserver path has an Azure database to find. On Neon there is no ARM
+    # resource to discover at all, which is the point of that provider.
+    if ($DbProvider -eq 'sqlserver') {
+        $SqlServerName = Resolve-ExistingName 'SQL server' 'SqlServerName' $SqlServerName `
+            @(Get-AzSqlServer -ResourceGroupName $ResourceGroup -ErrorAction SilentlyContinue | ForEach-Object ServerName)
+
+        # 'master' is always present and is never the application database.
+        if (Get-AzSqlServer -ResourceGroupName $ResourceGroup -ServerName $SqlServerName -ErrorAction SilentlyContinue) {
+            $SqlDbName = Resolve-ExistingName 'SQL database' 'SqlDbName' $SqlDbName `
+                @(Get-AzSqlDatabase -ResourceGroupName $ResourceGroup -ServerName $SqlServerName -ErrorAction SilentlyContinue |
+                    Where-Object { $_.DatabaseName -ne 'master' } | ForEach-Object DatabaseName)
+        }
+    }
+
+    if ($EnableStorage) {
+        $StorageAccount = Resolve-ExistingName 'storage account' 'StorageAccount' $StorageAccount `
+            @(Get-AzStorageAccount -ResourceGroupName $ResourceGroup -ErrorAction SilentlyContinue | ForEach-Object StorageAccountName)
+    }
+}
+
+function Write-AdoptionSummary {
+    Write-Host 'Existing resources'
+    Write-Host '------------------------------------------------------------'
+    foreach ($note in $AdoptNotes) { Write-Host "  $note" }
+    Write-Host '------------------------------------------------------------'
+    Write-Host ''
+}
+
 $storageState = if ($EnableStorage) { "ENABLED ($StorageAccount)" } else { 'disabled (pass -EnableStorage)' }
 @"
 Planned deployment
@@ -118,8 +239,7 @@ Planned deployment
   Web app            : $WebAppName            (runtime $Runtime)
   Database provider  : $DbProvider
   SQL server         : $(if ($DbProvider -eq 'sqlserver') { $SqlServerName } else { 'n/a (Neon)' })
-  SQL database       : $SqlDbName             (GP serverless Gen5, free-limit=$SqlUseFreeLimit)
-                       vCores $SqlMinVCores-$SqlMaxVCores, auto-pause ${SqlAutoPauseMin}m
+  SQL database       : $(if ($DbProvider -eq 'sqlserver') { "$SqlDbName (GP serverless Gen5, free-limit=$SqlUseFreeLimit, vCores $SqlMinVCores-$SqlMaxVCores, auto-pause ${SqlAutoPauseMin}m)" } else { 'n/a (Neon)' })
   SQL Entra admin    : $EntraAdminName ($EntraAdminType)
   SQL auth mode      : Entra-only (no SQL password)
   User-assigned MI   : $UamiName              (OIDC / CI-CD)
@@ -130,23 +250,11 @@ Planned deployment
 ------------------------------------------------------------
 "@ | Write-Host
 
+Write-AdoptionSummary
+
 if ($WhatIfPlan) { Write-Host "(-WhatIfPlan) No resources created."; return }
 
-# ---- Preflight --------------------------------------------------------------
-$ctx = Get-AzContext
-if (-not $ctx) { throw "Not logged in. Run 'Connect-AzAccount'." }
 Write-Step "Using subscription: $($ctx.Subscription.Id)"
-
-# Resolve the Entra administrator for the SQL server. Without one, an Entra-only server has
-# nobody who can administer it, so this fails fast rather than creating an orphan.
-if (-not $EntraAdminName -or -not $EntraAdminSid) {
-    $me = az ad signed-in-user show -o json 2>$null | ConvertFrom-Json
-    if (-not $EntraAdminName) { $EntraAdminName = $me.userPrincipalName }
-    if (-not $EntraAdminSid)  { $EntraAdminSid  = $me.id }
-}
-if (-not $EntraAdminName -or -not $EntraAdminSid) {
-    throw "Could not resolve an Entra administrator. Pass -EntraAdminName and -EntraAdminSid, or run 'az login' as a user."
-}
 
 # ---- 1. Resource group ------------------------------------------------------
 Write-Step "Creating resource group '$ResourceGroup'"
