@@ -19,6 +19,7 @@ The ones that cost the most time — jump to the section for the full story:
 - **`401 … "The signature key was not found"`** → [Local dev & auth testing](#local-dev--auth-testing): a stale/cross-instance token, or an env var overriding your user-secret.
 - **Users get signed out of every device at once** → [The real find](#the-real-find--concurrent-refresh-signed-users-out-everywhere): parallel refreshes tripping reuse detection.
 - **Serverless Azure SQL times out on the first request** → [Database](#database-sqlite-vs-azure-sql): auto-pause cold start (errors -2 / 40613) — retry, and keep seeding off the startup path.
+- **A provisioning re-run would have created a duplicate stack** → [Provisioning scripts](#provisioning-scripts-three-defects-a-linter-cannot-see): `$RANDOM` names never converge, and an identity lookup that works for a human kills the script as a service principal. Neither is a syntax error; CI now runs the plan as the service principal.
 - **The database free tier ran dry at ~55 wakes/month** → [Database economics](#database-economics--why-prod-moved-from-azure-sql-to-neon): Azure SQL serverless bills a full hour per wake; prod now runs Postgres on Neon, and startup schema creation is opt-in so deploys stop waking the DB.
 - **First request after idle is slow / "Failed to fetch"** → [Cold starts on the free tier](deployment/cold-starts.md): the app *and* DB wake from sleep; the client retries `502/503/504` + network errors, and a keep-warm ping keeps the app loaded — from an external monitor, because GitHub's cron silently skips runs (a five-hour gap was observed).
 - **`<name>.azurewebsites.net` won't resolve** → [Networking / hostnames](#networking--hostnames): use the Overview page's regional Default domain.
@@ -40,6 +41,72 @@ The ones that cost the most time — jump to the section for the full story:
 - Serverless Azure SQL auto-pauses when idle → the first request cold-starts and times out (errors -2 / 40613).
 - Running `EnsureCreated`/seeding at startup blocks the app from booting when the DB is asleep → move it off the startup path.
 - Cold-start fixes: EF `EnableRetryOnFailure`, a longer `Connect Timeout`, and resilient (non-blocking) startup.
+
+## Provisioning scripts: three defects a linter cannot see
+
+**The bugs.** Found 2026-09-02, all in code CI had checked and passed.
+
+1. **The scripts were never idempotent, and the README said they were.** Globally-unique names
+   came from `$RANDOM` (`taskboard-api-$RANDOM`), so a re-run against `rg-taskboard` did not
+   converge on the live stack — it described a second one. The real names (`taskboard-06-api`,
+   `ASP-rgtaskboard-a1a3`) are ones no default could reproduce, so the running app would have
+   been left untouched while a duplicate was created **and billed** beside it.
+2. **An ungated identity lookup killed the script for any non-human caller.**
+   `ENTRA_ADMIN_NAME="${ENTRA_ADMIN_NAME:-$(az ad signed-in-user show ...)}"` sat outside the
+   provider guard. As a service principal that lookup fails, the assignment takes its exit
+   status, and under `set -e` the script dies **with no message** — on the Postgres path, which
+   needs no SQL admin at all.
+3. **A swallowed grant, in the sibling repo.** WidgetWorks resolved the caller the same way and
+   passed the empty id into a role assignment whose failure was hidden by `2>&1 | Out-Null`. The
+   grant silently did not happen; the script failed several steps later at the secret writes,
+   pointing at the wrong thing.
+
+**Why every existing gate missed them.** Not one is a syntax error. `$RANDOM` is valid bash —
+it is wrong *across two runs*, which parsing cannot see. `VAR="${VAR:-$(cmd)}"` is idiomatic and
+correct for a human; it only misbehaves for a caller CI never simulated. `2>&1 | Out-Null` is the
+correct idiom when a failure is genuinely expected. All three are correct code, wrong in context.
+Shellcheck, `bash -n` and the PowerShell parser have nothing to say about any of them.
+
+The actual gap was simpler than any of the bugs: **the provisioning scripts were the only
+significant code in the repo that CI never executed.** Everything else is exercised — tests run,
+containers build, docs are diffed against code. The scripts were parsed and linted, which proves
+a file is well-formed and proves nothing about whether it works.
+
+**How they were found.** Not by review. Defect 1 surfaced while auditing what a from-scratch
+re-run would actually do after the Neon migration changed the scripts. Defect 2 was introduced by
+the migration commit itself (#165) and caught hours later by the follow-up (#166) — the same
+mistake in miniature: control flow changed, and what the new path required was not re-checked.
+Defect 3 came from asking whether the sibling repos shared the pattern.
+
+Worth noting the distribution: **defect density tracked edit frequency, not age.** The scripts
+nobody had touched since writing them were clean. Every defect found that day lived in recently
+modified code.
+
+**How they were fixed.** Resource *adoption*: the scripts now ask the group what it holds and
+adopt those names, erroring rather than guessing when a type is ambiguous (`rg-taskboard` holds
+two `oidc-msi-*` identities — picking one would silently wire CI to an identity nobody named).
+The identity lookups are gated on the provider that needs them and tolerate failure. The grant
+verifies its own end state, because `role assignment create` returns non-zero when the assignment
+already exists — so neither exit code alone distinguishes *granted* from *was already granted*
+from *failed*.
+
+**How it is prevented now.** `.github/workflows/provision-plan.yml` runs the scripts' planning
+path against real Azure **as the CI service principal**, on every change to them:
+
+- The plan must exit 0. CI is a service principal, so defect 2 would have failed on its first run
+  instead of at the next rebuild.
+- Two consecutive plans must be **byte-identical**. Idempotency stops being a README claim and
+  becomes a tested property — the thing it was not for the seven weeks `$RANDOM` survived four
+  security passes that all read that file.
+- The PowerShell path runs too. It shipped parse-checked and stub-tested only, because Az was not
+  installed where it was written; this is that missing run.
+
+It creates nothing — `--what-if` signs in, discovers, prints, exits.
+
+**The rule.** *Anything CI can execute, CI should execute.* Linting proves a file is well-formed;
+only running it proves it works. When a script has a dry-run mode, that mode is a free
+integration test, and the environment it runs in matters — the same script passes as a human and
+fails as a service principal, so the gate has to be the machine, not the developer.
 
 ## Database economics — why prod moved from Azure SQL to Neon
 

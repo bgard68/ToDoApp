@@ -1,0 +1,132 @@
+name: Provisioning plan
+
+# Runs the provisioning scripts' planning path against real Azure, as the CI service principal.
+#
+# The scripts were the only significant code in this repository that CI never EXECUTED. They were
+# parsed and shellcheck'd, which proves a file is well-formed and proves nothing about whether it
+# works. Three defects reached main behind that gap, and not one of them was a syntax error:
+#
+#   * Globally-unique names came from $RANDOM, so a re-run described a SECOND stack rather than
+#     converging on the live one — it would have created a duplicate app and billed it beside the
+#     real one. Perfectly valid bash; wrong only across two runs, which parsing cannot see (#166).
+#   * `VAR="${VAR:-$(az ad signed-in-user show ...)}"` sat outside the provider guard. Idiomatic,
+#     and correct for a human — but a service principal fails that lookup, the assignment takes
+#     its exit status, and under `set -e` the script dies with no message on a path that needs no
+#     admin at all. CI *is* a service principal, so this job is exactly the environment where it
+#     surfaces (#165 introduced it, #166 fixed it).
+#   * The same class in the sibling repo: a swallowed role-assignment failure meant a grant
+#     silently did not happen (WidgetWorks #112).
+#
+# So: execute the plan. It creates nothing — `--what-if` / `-WhatIfPlan` sign in, run discovery,
+# print what a real run would do, and exit. Two assertions:
+#
+#   1. It exits 0 as a service principal. That alone would have caught the second defect on its
+#      first run instead of at the next incident.
+#   2. Two consecutive plans are byte-identical. Idempotency stops being a README claim and
+#      becomes a tested property — which is what it was NOT for the seven weeks the $RANDOM names
+#      survived four security-hardening passes that all read this file.
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'infra/provision.sh'
+      - 'infra/Provision.ps1'
+      - '.github/workflows/provision-plan.yml'
+  pull_request:
+    paths:
+      - 'infra/provision.sh'
+      - 'infra/Provision.ps1'
+      - '.github/workflows/provision-plan.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write      # OIDC federated login; no stored credential
+
+concurrency:
+  group: provision-plan-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  plan:
+    name: Provisioning scripts must plan cleanly
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # The same federated identity the deploy job uses. It is a service principal, which is the
+      # whole point: the defect this job exists to catch is invisible to a human running the
+      # script locally, because `az ad signed-in-user show` answers for a human and not for CI.
+      - name: Azure login (OIDC)
+        uses: azure/login@7ddb5af1ef8758cf1353cf3b42f940aee27ba21c # v3.0.2
+        with:
+          client-id: ${{ secrets.AZUREAPPSERVICE_CLIENTID_566B4FFECC144FF99662F3E334946913 }}
+          tenant-id: ${{ secrets.AZUREAPPSERVICE_TENANTID_666F8329ACAC4EF9A4E3DFE024EB99CA }}
+          subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID_0056D27AD4F64315858EF3757BCD85C7 }}
+
+      - name: Plan runs clean as a service principal (bash)
+        env:
+          # Pin the group so discovery has something real to adopt. Left to its default this
+          # would still pass, but it would prove much less: adoption is only exercised when the
+          # group actually holds resources.
+          RESOURCE_GROUP: rg-taskboard
+        run: |
+          set -uo pipefail
+          bash infra/provision.sh --what-if > plan-1.txt 2>&1
+          status=$?
+          echo "--- plan output ---"
+          cat plan-1.txt
+          if [ "$status" -ne 0 ]; then
+            echo "::error::provision.sh --what-if exited $status as a service principal."
+            echo "::error::A human running this locally would not see it: the failure needs a non-human caller."
+            exit 1
+          fi
+
+      - name: Plan is stable across runs (idempotency)
+        env:
+          RESOURCE_GROUP: rg-taskboard
+        run: |
+          set -uo pipefail
+          bash infra/provision.sh --what-if > plan-2.txt 2>&1 || {
+            echo "::error::second plan run failed"; exit 1; }
+          # Names generated fresh per run (the $RANDOM defect) show up here as a diff, even
+          # though each individual run looks perfectly reasonable on its own.
+          if ! diff -u plan-1.txt plan-2.txt > plan.diff; then
+            echo "::error::Two consecutive plans differ — the script does not converge on one stack."
+            echo "::error::A re-run would describe different resources than the last, which is how"
+            echo "::error::a duplicate app gets created and billed beside the live one."
+            cat plan.diff
+            exit 1
+          fi
+          echo "Plans identical across runs."
+
+      - name: Plan runs clean as a service principal (PowerShell)
+        shell: pwsh
+        env:
+          RESOURCE_GROUP: rg-taskboard
+        run: |
+          # The PowerShell path shipped in #166 was parse-checked and stub-tested only — Az was
+          # not installed on the machine it was written on, so it had never run against real
+          # Azure. This is that missing run.
+          $ErrorActionPreference = 'Continue'
+          ./infra/Provision.ps1 -WhatIfPlan -ResourceGroup $env:RESOURCE_GROUP 2>&1 | Tee-Object -Variable out
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "::error::Provision.ps1 -WhatIfPlan exited $LASTEXITCODE as a service principal."
+            exit 1
+          }
+          Write-Host "PowerShell plan ran clean."
+
+      - name: Upload plans
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: provisioning-plans
+          path: |
+            plan-1.txt
+            plan-2.txt
+          retention-days: 7
+          if-no-files-found: ignore
