@@ -103,6 +103,16 @@ path against real Azure **as the CI service principal**, on every change to them
 
 It creates nothing — `--what-if` signs in, discovers, prints, exits.
 
+**A second lesson, from building that gate.** The first version ran on `pull_request` and failed
+immediately: `AADSTS700213 — no matching federated identity record for subject
+repo:bgard68/ToDoApp:pull_request`. The OIDC trust allows exactly two subjects, `ref:refs/heads/main`
+and `environment:production`. The tempting fix — add a `pull_request` federated credential — is the
+wrong one on a **public** repository: a `pull_request` workflow runs the file as it exists on the
+PR head, so trusting that subject hands any stranger's fork a token for the subscription in
+exchange for earlier feedback. The gate runs on push-to-main and `workflow_dispatch` instead. It
+catches the same regressions one merge later, and the CI identity's trust surface stays exactly as
+narrow as it was.
+
 **The rule.** *Anything CI can execute, CI should execute.* Linting proves a file is well-formed;
 only running it proves it works. When a script has a dry-run mode, that mode is a free
 integration test, and the environment it runs in matters — the same script passes as a human and

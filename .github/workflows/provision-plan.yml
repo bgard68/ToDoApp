@@ -26,14 +26,21 @@ name: Provisioning plan
 #      becomes a tested property — which is what it was NOT for the seven weeks the $RANDOM names
 #      survived four security-hardening passes that all read this file.
 
+# Runs on push to main and on demand -- NOT on pull_request, and that is deliberate.
+#
+# The OIDC trust on the deployment identities allows exactly two subjects:
+#   repo:bgard68/ToDoApp:ref:refs/heads/main
+#   repo:bgard68/ToDoApp:environment:production
+#
+# Adding repo:bgard68/ToDoApp:pull_request would make this gate run pre-merge, at the cost of
+# letting ANY pull request authenticate as the deployment identity. This repository is public and
+# a `pull_request` workflow runs the file as it exists on the PR head, so that trade buys earlier
+# feedback by handing a stranger's fork a token for the subscription. Not worth it: the gate
+# still catches every regression, one merge later, and `workflow_dispatch` covers the case where
+# you want to check before merging.
 on:
   push:
     branches: [ main ]
-    paths:
-      - 'infra/provision.sh'
-      - 'infra/Provision.ps1'
-      - '.github/workflows/provision-plan.yml'
-  pull_request:
     paths:
       - 'infra/provision.sh'
       - 'infra/Provision.ps1'
