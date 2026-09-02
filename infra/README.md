@@ -117,6 +117,11 @@ Preview the planned resource names without creating anything:
 ./Provision.ps1 -WhatIfPlan
 ```
 
+> The preview signs in and runs discovery (below) before printing, so it needs an
+> active `az login` / `Connect-AzAccount`. It still creates nothing — but a preview
+> that printed the generated names while the real run adopted the group's existing
+> ones would describe a deployment that never happens.
+
 Run with defaults:
 
 ```bash
@@ -163,15 +168,51 @@ PROJECT=taskboard LOCATION=centralus APP_SKU=B1 SQL_MAX_VCORES=4 ./provision.sh
 | `SQL_ADMIN_PASSWORD` | `-SqlAdminPassword` | *(auto-generated)* | Stored in Key Vault if generated |
 | `UAMI_NAME` | `-UamiName` | `<project>-oidc-msi` | User-assigned identity for CI/CD |
 | `KEYVAULT_NAME` | `-KeyVaultName` | `<project>-kv` | |
+| `ADOPT_EXISTING` | `-NoAdopt` | `true` / adopt on | Reuse the names of resources the group already holds. See [Discovering what already exists](#discovering-what-already-exists) |
 | `ENABLE_STORAGE` | `-EnableStorage` | `false` / off | Also create storage account + static website |
 | `STORAGE_SKU` | `-StorageSku` | `Standard_LRS` | Only when storage enabled |
 | `STATIC_INDEX` / `STATIC_404` | `-StaticIndex` / `-Static404` | `index.html` / `404.html` | Static site documents |
 | `STATIC_UPLOAD_SAMPLE` | `-NoStaticSample` | seed on | bash: set `0` to skip; PS: pass `-NoStaticSample` |
 
-Globally-unique names (web app, SQL server, storage account) get a random suffix
-by default so first runs don't collide. Pin them via the matching variable/param
-(e.g. `WEBAPP_NAME`, `SQL_SERVER_NAME`) if you want stable names or want to update
-the existing `taskboard` resources in place.
+## Discovering what already exists
+
+Globally-unique names (web app, SQL server, storage account) get a random suffix by
+default so first runs don't collide. Applied blindly to a group that already holds
+the stack, those defaults describe a **second** stack — the live environment runs
+`taskboard-06-api` on `ASP-rgtaskboard-a1a3`, names no default here would ever
+reproduce — so a re-run would leave the running app untouched and bill for a
+duplicate beside it.
+
+So before creating anything, both scripts ask the resource group what it already
+holds and adopt those names. Three rules keep that honest:
+
+| Situation | What happens |
+|---|---|
+| The name was passed in explicitly | Used as given — the caller has decided; discovery never overrides it |
+| Exactly one resource of that type in the group | Adopted, and reported in the *Existing resources* block |
+| More than one | **Error, not a guess.** `rg-taskboard` holds two managed identities (`oidc-msi-8552`, `oidc-msi-ac8b`); picking one would silently wire CI to an identity you never named |
+| None, or the group doesn't exist yet | The generated default is created, as before |
+
+Discovery covers the App Service plan, web app, Key Vault, user-assigned identity,
+and — on `DB_PROVIDER=sqlserver` only — the SQL server and its non-`master` database.
+Neon has no ARM resource to discover, which is rather the point of that provider.
+
+Every run prints what it resolved before it touches anything:
+
+```
+Existing resources
+------------------------------------------------------------
+  App Service plan: adopted existing 'ASP-rgtaskboard-a1a3'
+  web app: adopted existing 'taskboard-06-api'
+  Key Vault: adopted existing 'taskboard-kv'
+  user-assigned managed identity: pinned to 'oidc-msi-8552' by the caller
+  SQL server: adopted existing 'taskboard-05-sql'
+  SQL database: adopted existing 'taskboard'
+------------------------------------------------------------
+```
+
+Turn it off with `ADOPT_EXISTING=false` / `-NoAdopt` to build a fresh stack beside
+an existing one.
 
 ## Wiring up OIDC / CI-CD deploys
 
@@ -462,7 +503,8 @@ Applies across provision, export, and import.
 
 **Safe to run**
 - Both provisioning scripts are **idempotent** — re-running converges rather than
-  duplicating.
+  duplicating, because discovery adopts the group's existing resource names instead
+  of minting new random ones.
 - Preview first: `./provision.sh --what-if` / `./Provision.ps1 -WhatIfPlan`.
 - Export is strictly **read-only**; it never mutates Azure.
 - App-setting writes **merge** (existing settings are preserved, not replaced).
@@ -470,8 +512,10 @@ Applies across provision, export, and import.
 **Environments & naming**
 - Use a distinct `PROJECT` / `RESOURCE_GROUP` per environment (e.g.
   `rg-taskboard`, `rg-taskboard-dev`) so a clone never touches production.
-- Globally-unique names get a random suffix by default; pin them only when you
-  intentionally want to update existing resources in place.
+- Globally-unique names get a random suffix by default, but discovery adopts an
+  existing resource's name ahead of that. Pin a name only to disambiguate a group
+  holding several of a type, or pass `ADOPT_EXISTING=false` / `-NoAdopt` to build a
+  fresh stack beside an existing one.
 - Resources are **tagged** (`project`, `environment`, `managedBy`) for cost
   tracking and cleanup.
 
