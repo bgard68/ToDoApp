@@ -77,10 +77,12 @@ jobs:
 
       - name: Plan runs clean as a service principal (bash)
         env:
-          # Pin the group so discovery has something real to adopt. Left to its default this
-          # would still pass, but it would prove much less: adoption is only exercised when the
-          # group actually holds resources.
           RESOURCE_GROUP: rg-taskboard
+          # rg-taskboard holds two user-assigned identities, so the adoption guard refuses to
+          # guess -- correctly. oidc-msi-ac8b is the live one: it carries the Website Contributor
+          # role on taskboard-06-api that the deploy job uses. Pinning it here is what a real
+          # operator would do, and exercises the guard's "pinned by the caller" branch.
+          UAMI_NAME: oidc-msi-ac8b
         run: |
           set -uo pipefail
           bash infra/provision.sh --what-if > plan-1.txt 2>&1
@@ -96,12 +98,17 @@ jobs:
       - name: Plan is stable across runs (idempotency)
         env:
           RESOURCE_GROUP: rg-taskboard
+          UAMI_NAME: oidc-msi-ac8b
         run: |
           set -uo pipefail
           bash infra/provision.sh --what-if > plan-2.txt 2>&1 || {
             echo "::error::second plan run failed"; exit 1; }
-          # Names generated fresh per run (the $RANDOM defect) show up here as a diff, even
-          # though each individual run looks perfectly reasonable on its own.
+          # This is the assertion that matters most, and it caught the root cause the adoption
+          # work had only masked. The CI identity holds Website Contributor on ONE app and no
+          # group-wide read -- correct least privilege -- so `az webapp list` returns nothing,
+          # adoption finds nothing, and the generated default is used. While that default came
+          # from $RANDOM the two plans differed every time. The suffix is now derived from the
+          # subscription and project, so it is stable whether or not anything is discoverable.
           if ! diff -u plan-1.txt plan-2.txt > plan.diff; then
             echo "::error::Two consecutive plans differ — the script does not converge on one stack."
             echo "::error::A re-run would describe different resources than the last, which is how"
@@ -115,6 +122,7 @@ jobs:
         shell: pwsh
         env:
           RESOURCE_GROUP: rg-taskboard
+          UAMI_NAME: oidc-msi-ac8b
         run: |
           # The PowerShell path shipped in #166 was parse-checked and stub-tested only — Az was
           # not installed on the machine it was written on, so it had never run against real
