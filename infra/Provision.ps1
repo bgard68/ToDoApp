@@ -47,7 +47,19 @@ param(
     # Web / App Service (Linux, Free tier)
     [string] $AppServicePlan = "asp-$Project",
     [string] $AppSku         = 'F1',
-    [string] $WebAppName     = "$Project-api-$(Get-Random -Maximum 99999)",
+    # Globally-unique names need a suffix, and Get-Random was the wrong one: a different value
+    # every run, so a re-run never converged on the stack it created last time. Discovery below
+    # hides that when it can see the group -- but a least-privilege CI identity cannot list it,
+    # so the default is used and the randomness returns. Derived instead: the same subscription
+    # and project always produce the same name, discoverable or not.
+    [string] $UniqueSuffix   = (
+        [System.BitConverter]::ToString(
+            [System.Security.Cryptography.SHA256]::HashData(
+                [System.Text.Encoding]::UTF8.GetBytes(
+                    "$((az account show --query id -o tsv 2>$null))/$Project"))
+        ).Replace('-','').Substring(0,6).ToLower()
+    ),
+    [string] $WebAppName     = "$Project-api-$UniqueSuffix",
     # Linux runtime for New-AzWebApp; adjust to your stack (e.g. 'NODE|20-lts','PYTHON|3.12')
     [string] $Runtime        = 'DOTNETCORE|10.0',   # matches net10.0 (finding L2)
 
@@ -63,7 +75,7 @@ param(
     [securestring] $NeonConnectionString,
 
     # Azure SQL (General Purpose serverless Gen5 + free limit) — only when -DbProvider sqlserver
-    [string] $SqlServerName  = "$Project-sql-$(Get-Random -Maximum 99999)",
+    [string] $SqlServerName  = "$Project-sql-$UniqueSuffix",
     [string] $SqlDbName      = $Project,
     [double] $SqlMaxVCores   = 2,
     [double] $SqlMinVCores   = 0.5,
@@ -88,7 +100,7 @@ param(
 
     # Optional storage + static website (not in the live env)
     [switch] $EnableStorage,
-    [string] $StorageAccount   = ("st$Project$(Get-Random -Maximum 99999)"),
+    [string] $StorageAccount   = ("st$Project$UniqueSuffix"),
     [string] $StorageContainer = 'app-data',
     [string] $StorageSku       = 'Standard_LRS',
     [string] $StaticIndex      = 'index.html',
@@ -140,8 +152,9 @@ if ($DbProvider -eq 'sqlserver') {
 }
 
 # ---- Discovery ---------------------------------------------------------------
-# The name defaults above carry a Get-Random suffix because they must be globally
-# unique. Applied blindly to a group that already holds this stack they describe a
+# The name defaults above carry a DERIVED suffix because they must be globally unique --
+# derived, not random, so two runs agree even when nothing can be discovered.
+# Applied blindly to a group that already holds this stack they still describe a
 # SECOND stack: the live environment runs taskboard-06-api on ASP-rgtaskboard-a1a3,
 # names no default here would ever reproduce, so every re-run would leave the running
 # app untouched and bill for a duplicate beside it.

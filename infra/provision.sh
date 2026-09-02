@@ -66,7 +66,15 @@ RESOURCE_GROUP="${RESOURCE_GROUP:-rg-${PROJECT}}"
 # Web / App Service (Linux, Free tier — matches ASP-rgtaskboard / taskboard-06-api)
 APP_SERVICE_PLAN="${APP_SERVICE_PLAN:-asp-${PROJECT}}"
 APP_SKU="${APP_SKU:-F1}"                        # F1 = Free. Use B1/S1/P1v3 to scale up.
-WEBAPP_NAME="${WEBAPP_NAME:-${PROJECT}-api-$RANDOM}"   # must be globally unique
+# Globally-unique names need a suffix, and $RANDOM was the wrong one: a different value every
+# run, so a re-run never converged on the stack it made last time. Resource adoption (#166) hides
+# that when discovery can see the group -- but a least-privilege CI identity cannot list it (the
+# deploy identity holds Website Contributor on ONE app and nothing else), so discovery finds
+# nothing, the default is used, and the randomness is back. Derive the suffix instead: same
+# subscription and project always produce the same name, whether or not anything is discoverable.
+UNIQUE_SEED="${UNIQUE_SEED:-$(az account show --query id -o tsv 2>/dev/null || echo "no-subscription")}/${PROJECT}"
+UNIQUE_SUFFIX="$(printf '%s' "$UNIQUE_SEED" | sha256sum | cut -c1-6)"
+WEBAPP_NAME="${WEBAPP_NAME:-${PROJECT}-api-${UNIQUE_SUFFIX}}"   # must be globally unique
 # Linux runtime string for `az webapp create`. The live app kind is generic
 # "app,linux"; adjust to match your stack, e.g. NODE:20-lts, PYTHON:3.12, JAVA:17.
 RUNTIME="${RUNTIME:-DOTNETCORE:10.0}"   # matches <TargetFramework>net10.0</TargetFramework> (finding L2)
@@ -87,7 +95,7 @@ if [[ "$DB_PROVIDER" != "postgres" && "$DB_PROVIDER" != "sqlserver" ]]; then
 fi
 
 # Azure SQL (General Purpose serverless Gen5 + free limit) — only used when DB_PROVIDER=sqlserver
-SQL_SERVER_NAME="${SQL_SERVER_NAME:-${PROJECT}-sql-$RANDOM}"  # globally unique
+SQL_SERVER_NAME="${SQL_SERVER_NAME:-${PROJECT}-sql-${UNIQUE_SUFFIX}}"  # globally unique
 SQL_DB_NAME="${SQL_DB_NAME:-${PROJECT}}"
 SQL_MAX_VCORES="${SQL_MAX_VCORES:-2}"          # serverless auto-scale ceiling
 SQL_MIN_VCORES="${SQL_MIN_VCORES:-0.5}"        # serverless auto-scale floor
@@ -117,7 +125,7 @@ IMPORT_SECRETS_FILE="${IMPORT_SECRETS_FILE:-}"     # e.g. azure-export/keyvault-
 
 # Optional storage + static website (NOT in the live env; off by default)
 ENABLE_STORAGE="${ENABLE_STORAGE:-false}"
-STORAGE_ACCOUNT="${STORAGE_ACCOUNT:-st${PROJECT}$RANDOM}"
+STORAGE_ACCOUNT="${STORAGE_ACCOUNT:-st${PROJECT}${UNIQUE_SUFFIX}}"
 STORAGE_CONTAINER="${STORAGE_CONTAINER:-app-data}"
 STORAGE_SKU="${STORAGE_SKU:-Standard_LRS}"
 STATIC_INDEX="${STATIC_INDEX:-index.html}"

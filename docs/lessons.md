@@ -103,6 +103,25 @@ path against real Azure **as the CI service principal**, on every change to them
 
 It creates nothing — `--what-if` signs in, discovers, prints, exits.
 
+**A third lesson, from the gate's first real run — it failed, and it was right to.** Adoption
+(#166) fixed the human case and left the CI case untouched, because it *degrades silently*: the
+deploy identity holds `Website Contributor` on one web app and no group-wide read, which is
+correct least privilege, so `az webapp list` returns nothing, adoption finds nothing, and the
+`$RANDOM` default comes straight back. Two plans, two names, gate red.
+
+The tempting fix was granting the CI identity Reader over the resource group — weakening a
+deliberately narrow permission so a test could pass. The right fix was removing the randomness
+the adoption layer had been papering over: the suffix is now **derived** (`sha256(subscription +
+project)`, first six hex chars), so re-runs converge whether or not anything is discoverable.
+LotteryApp had already done exactly this, with the comment *"Deterministic short suffix so
+globally-unique names are stable across re-runs"* — the answer existed in a sibling repo the whole
+time.
+
+Two things worth keeping from that: a mitigation that only works when a query succeeds is not a
+fix, it is a mask that fits the author's permissions; and when a gate fails, check whether the
+gate is wrong before changing the system to satisfy it — here it was neither, the gate was right
+and the mask was hiding a live bug.
+
 **A second lesson, from building that gate.** The first version ran on `pull_request` and failed
 immediately: `AADSTS700213 — no matching federated identity record for subject
 repo:bgard68/ToDoApp:pull_request`. The OIDC trust allows exactly two subjects, `ref:refs/heads/main`
