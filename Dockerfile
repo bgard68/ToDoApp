@@ -27,10 +27,13 @@ FROM nginxinc/nginx-unprivileged:alpine@sha256:aa8c9087d36d93e9d650c5365f883b421
 # nginxinc last baked in. Alpine ships its security fixes on a different schedule, so the image
 # scan gate blocks on fixable CRITICAL/HIGH findings long before the publisher rebuilds — and
 # refreshing the pin, which is what the gate's own error message advises, does not help. Patch the
-# named package here instead. Scoped to one package on purpose: the rest of the image stays as
-# reproducible as the digest promises, and this line gets revisited when the gate names a new one.
+# whole package set forward here instead. Upgrading every package rather than a named one is
+# deliberate: pinning one package only moves the failure to the next package Alpine patches first,
+# which is the loop this replaces. The digest still fixes the starting point and npm ci still locks
+# the app tree; what floats is the OS security-patch stream within Alpine 3.24, which is the part
+# that should float.
 USER root
-RUN apk --no-cache upgrade libuuid
+RUN apk --no-cache upgrade
 USER 101
 COPY --from=build /app/dist /usr/share/nginx/html
 COPY nginx.conf /etc/nginx/conf.d/default.conf
