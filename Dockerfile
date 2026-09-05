@@ -23,6 +23,15 @@ RUN npm run build
 # Unprivileged nginx: runs as uid 101 and listens on 8080, because a non-root process cannot bind
 # a port below 1024. The stock nginx image runs its master process as root (review finding M10).
 FROM nginxinc/nginx-unprivileged:alpine@sha256:d9083fe47768377ef55dedafd67d4da7c2f2bc2bece7554954f29359deb0dce9 AS final
+# The digest pin above buys reproducibility, but it also freezes the OS package set at whatever
+# nginxinc last baked in. Alpine ships its security fixes on a different schedule, so the image
+# scan gate blocks on fixable CRITICAL/HIGH findings long before the publisher rebuilds — and
+# refreshing the pin, which is what the gate's own error message advises, does not help. Patch the
+# named package here instead. Scoped to one package on purpose: the rest of the image stays as
+# reproducible as the digest promises, and this line gets revisited when the gate names a new one.
+USER root
+RUN apk --no-cache upgrade libuuid
+USER 101
 COPY --from=build /app/dist /usr/share/nginx/html
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 EXPOSE 8080
