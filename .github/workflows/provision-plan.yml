@@ -64,6 +64,9 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # This job holds id-token: write; do not also leave GITHUB_TOKEN in .git/config.
+          persist-credentials: false
 
       # The same federated identity the deploy job uses. It is a service principal, which is the
       # whole point: the defect this job exists to catch is invisible to a human running the
