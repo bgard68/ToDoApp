@@ -29,7 +29,7 @@ public class TodoLifecycleIntegrationTests : IClassFixture<CustomWebApplicationF
     private static async Task<TodoResult> CreateTodoAsync(HttpClient client, string title = "Write the report")
     {
         var response = await client.PostAsJsonAsync("/api/todos",
-            new { title, description = "  padded  ", priority = 2, categoryId = (int?)null, dueDate = (DateTimeOffset?)null });
+            new { title, description = "  padded  ", priority = 2 });
         response.StatusCode.Should().Be(HttpStatusCode.Created);
         return (await response.Content.ReadFromJsonAsync<TodoResult>())!;
     }
