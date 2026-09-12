@@ -5,7 +5,7 @@
 # Dockerfile can produce a different image tomorrow, so a reproducible build and an audited base
 # are impossible with tags alone. Refresh with:
 #   docker buildx imagetools inspect node:22-alpine --format '{{.Manifest.Digest}}'
-FROM node:26-alpine@sha256:2d984a15c9b54fd0aeb608b8e0d0d83529eb34d2966db27a1fb4f1edc3d298a3 AS build
+FROM node:26-alpine@sha256:ef24c5053d50fdc3e4e56eb4e7ddb7861874ab0fdc797046ba897581deb8e868 AS build
 WORKDIR /app
 
 # npm ci, not npm install: ci installs exactly what package-lock.json records and fails if the
@@ -22,7 +22,7 @@ RUN npm run build
 
 # Unprivileged nginx: runs as uid 101 and listens on 8080, because a non-root process cannot bind
 # a port below 1024. The stock nginx image runs its master process as root (review finding M10).
-FROM nginxinc/nginx-unprivileged:alpine@sha256:aa8c9087d36d93e9d650c5365f883b421e8214aedbad24ade52b844c583358f1 AS final
+FROM nginxinc/nginx-unprivileged:alpine@sha256:2ddec616f1cb58bcac057aa388f28cb81e35137641ef4226d321714499329bd1 AS final
 # The digest pin above buys reproducibility, but it also freezes the OS package set at whatever
 # nginxinc last baked in. Alpine ships its security fixes on a different schedule, so the image
 # scan gate blocks on fixable CRITICAL/HIGH findings long before the publisher rebuilds — and
