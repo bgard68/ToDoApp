@@ -154,6 +154,17 @@ updates:
       interval: "weekly"
     open-pull-requests-limit: 5
     groups:
+      # vitest and @vitest/coverage-v8 pin each other with an exact peer dependency:
+      # coverage-v8@X requires vitest@X precisely. A major therefore cannot arrive as two
+      # pull requests - each one alone makes `npm ci` unsatisfiable, so both branches are
+      # born red and no rebase helps. That is what #182 and #183 were, and #189 is the
+      # single commit that had to replace them.
+      #
+      # Grouped across ALL update types, for the same reason github-actions is: the
+      # constraint holds whether the bump is major, minor or patch. It is listed before
+      # the catch-all because Dependabot puts a dependency in the FIRST group it matches.
+      vitest:
+        patterns: ["vitest", "@vitest/*"]
       npm:
         patterns: ["*"]
         update-types: ["minor", "patch"]
