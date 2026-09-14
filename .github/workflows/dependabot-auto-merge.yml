@@ -1,0 +1,34 @@
+name: Dependabot auto-merge
+
+# Auto-merges Dependabot PRs that target THIS branch once every required check passes
+# (minor/patch only; majors stay open for a human). Branch protection still gates the
+# merge. This branch is independent — it does not merge into any other branch, and this
+# workflow only ever acts on PRs whose base is this branch.
+#
+# Uses only the automatic GITHUB_TOKEN — no PAT or extra secrets. Requires "Allow
+# auto-merge" in Settings > General (enabled for this repo).
+
+on: pull_request
+
+# Read-only by default; the one job that needs it grants itself the minimum below.
+permissions:
+  contents: read
+
+jobs:
+  auto-merge:
+    if: github.actor == 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      pull-requests: write
+    steps:
+      - name: Fetch Dependabot metadata
+        id: meta
+        uses: dependabot/fetch-metadata@25dd0e34f4fe68f24cc83900b1fe3fe149efef98 # v3.1.0
+
+      - name: Enable auto-merge for non-major updates
+        if: steps.meta.outputs.update-type != 'version-update:semver-major'
+        run: gh pr merge --auto --squash "$PR_URL"
+        env:
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
