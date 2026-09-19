@@ -22,7 +22,7 @@ RUN npm run build
 
 # Unprivileged nginx: runs as uid 101 and listens on 8080, because a non-root process cannot bind
 # a port below 1024. The stock nginx image runs its master process as root (review finding M10).
-FROM nginxinc/nginx-unprivileged:alpine@sha256:2ddec616f1cb58bcac057aa388f28cb81e35137641ef4226d321714499329bd1 AS final
+FROM nginxinc/nginx-unprivileged:alpine@sha256:b54ac358b83fc6c965793fd271839b4ea4cdb6e99895bb19618cbc2ca152d972 AS final
 # The digest pin above buys reproducibility, but it also freezes the OS package set at whatever
 # nginxinc last baked in. Alpine ships its security fixes on a different schedule, so the image
 # scan gate blocks on fixable CRITICAL/HIGH findings long before the publisher rebuilds — and
