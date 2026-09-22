@@ -19,7 +19,13 @@ jobs:
     if: github.actor == 'dependabot[bot]'
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    # contents: write is required here, not optional: `gh pr merge --auto` calls the
+    # enablePullRequestAutoMerge mutation, which GitHub gates on contents: write even
+    # though GitHub performs the merge itself later. With pull-requests: write alone
+    # the step fails with "Resource not accessible by integration". Job-scoped, so the
+    # workflow default stays read-only.
     permissions:
+      contents: write
       pull-requests: write
     steps:
       - name: Fetch Dependabot metadata
