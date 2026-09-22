@@ -16,7 +16,10 @@ permissions:
 
 jobs:
   auto-merge:
-    if: github.actor == 'dependabot[bot]'
+    # The PR's author, not github.actor. github.actor is whoever caused this event,
+    # which stops being Dependabot as soon as another workflow pushes to the branch:
+    # that synchronize run is attributed to github-actions[bot] and this job skips.
+    if: github.event.pull_request.user.login == 'dependabot[bot]'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     # contents: write is required here, not optional: `gh pr merge --auto` calls the
