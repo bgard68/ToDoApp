@@ -5,7 +5,7 @@
 # Dockerfile can produce a different image tomorrow, so a reproducible build and an audited base
 # are impossible with tags alone. Refresh with:
 #   docker buildx imagetools inspect node:22-alpine --format '{{.Manifest.Digest}}'
-FROM node:26-alpine@sha256:ef24c5053d50fdc3e4e56eb4e7ddb7861874ab0fdc797046ba897581deb8e868 AS build
+FROM node:26-alpine@sha256:dbaa92e5758cbbcf85d65d5403fdb530fe3442cbe8c6dbfb7ef23365450d5070 AS build
 WORKDIR /app
 
 # npm ci, not npm install: ci installs exactly what package-lock.json records and fails if the
