@@ -8,9 +8,11 @@ EF Core generates it from the entities in `src/TodoApp.Domain/Entities` and the 
 `src/TodoApp.Infrastructure/Persistence/Configurations`, so this document is a readable mirror of
 that source, not a hand-maintained DDL script.
 
-The same model runs on **SQLite** (dev) and **PostgreSQL** (prod — Neon; SQL Server also supported) via a config-driven
-provider switch — see [database portability](database-portability.md) for the provider differences
-this schema deliberately accommodates.
+The same model runs on **SQLite** (dev) and **PostgreSQL** (prod — Neon; SQL Server also supported)
+via a config-driven provider switch — see [database portability](database-portability.md) for the
+provider differences this schema deliberately accommodates, and
+[why the database moved to Neon](../deployment/cold-starts.md#why-the-database-moved-to-neon) for why
+production left Azure SQL.
 
 ---
 
@@ -94,7 +96,7 @@ access token and checked on each request, so rotating it invalidates all outstan
 | `Id` | int (identity) | no | **PK** |
 | `Email` | string (256) | no | **Unique index**; stored lower-cased/normalized |
 | `PasswordHash` | string | **yes** | Null for accounts that only sign in via an external provider (e.g. Google) |
-| `Role` | int | no | `UserRole` enum — `User = 0`, `Admin = 1` |
+| `Role` | int | no | `UserRole` enum — `User = 0`, `Admin = 1`. No endpoint sets it; see [making a user an admin](api-reference.md#authentication--authorization) |
 | `SecurityStamp` | string (64) | no | Random; rotate to revoke all access tokens |
 | `IsActive` | bool | no | `false` blocks sign-in immediately |
 | `CreatedAt` | long (UTC ticks) | no | |
@@ -194,12 +196,15 @@ Links a user to an external identity provider (e.g. Google), modeled after ASP.N
 - **Enums are persisted as `int`** (`HasConversion<int>()`), so the numeric values above are what
   actually sit in the column.
 
-## Seed data (first run)
+## Seed data (opt-in)
 
-On first launch `DbInitializer` creates the database and seeds a demo account so the app is usable
-immediately:
+Seeding is **off by default** (`Seed:DemoUser=false`). When enabled, `DbInitializer` seeds a demo
+account on an empty database so the app is usable immediately:
 
-- **Demo user** — `demo@todoapp.local` / `Password123!`
+- **Demo user** — `Seed:Email` (default `demo@todoapp.local`) with the password from `Seed:Password`
+  (configuration / Key Vault, never the code). With no password configured it generates a random one,
+  so nobody can sign in. The live demo enables it with the password published in the README — it is a
+  plain `User`, never promote it to `Admin`.
 - **Five default categories** — Work, Personal, Errands, Study, Other (the same starter set every
   new user receives via `Category.DefaultsFor`)
 - **A few sample todos** spread across the lanes

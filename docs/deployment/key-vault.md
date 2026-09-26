@@ -10,21 +10,33 @@ deploy.
 
 ## What goes in Key Vault (and what deliberately doesn't)
 
-The notable thing about this project is how *little* is secret — a direct payoff of going passwordless
-on the database and using a public Google client ID.
+The notable thing about this project is how *little* is secret — a payoff of using a public Google
+client ID and, on Azure SQL, a passwordless database connection. Production now runs Postgres on
+**Neon**, whose connection string does carry a password, so that is the second secret.
 
 | Value | Secret? | Where it lives | In Key Vault? |
 | ----- | ------- | -------------- | ------------- |
-| **`Jwt:Key`** — JWT signing key | ✅ yes, the one real app secret | user-secrets (dev) / env var or Key Vault (prod) | ✅ **yes** |
-| DB connection string | ❌ no — passwordless (`Authentication=Active Directory Default`), no password to protect | app setting | ❌ no |
+| **`Jwt:Key`** — JWT signing key | ✅ yes, the main app secret | user-secrets (dev) / env var or Key Vault (prod) | ✅ **yes** |
+| DB connection string — **Neon** (production) | ✅ yes — contains the database password | Key Vault secret `ConnectionStrings--DefaultConnection` | ✅ **yes** |
+| DB connection string — Azure SQL (optional) | ❌ no — passwordless (`Authentication=Active Directory Default`), no password to protect | app setting | ❌ no |
 | `Authentication:Google:ClientId` | ❌ no — a *public* OAuth client id; ID-token flow uses no client secret | config / build var | ❌ no |
 | Issuer, audience, token lifetimes | ❌ no — plain config | `appsettings.json` | ❌ no |
 | CORS allowed origins | ❌ no — plain config | app setting | ❌ no |
 | Refresh tokens | ❌ no — already **hashed** in the database, never in config | database | ❌ no |
 
-**Bottom line: exactly one secret today — the JWT signing key.** That's not a gap; it's the point.
-Passwordless managed-identity SQL means there's no DB password anywhere, and the Google flow uses no
-client secret, so the entire secret surface collapses to the token-signing key.
+**Bottom line: two secrets on Neon — the JWT signing key and the database connection string** (one,
+the signing key, on Azure SQL, where the managed identity replaces the DB password). The Google flow uses
+no client secret, so the secret surface stays that small.
+
+**Why accept a DB password at all?** Azure SQL serverless bills a full hour every time the paused
+database wakes, so its free month covered only ~55 wakes, and it took 30–60s to resume. Neon bills minutes
+used and resumes in ~1–2s. Trading the passwordless connection for a Key Vault–held connection string was
+the price — see [why the database moved to Neon](cold-starts.md#why-the-database-moved-to-neon).
+
+> **Cutover trap:** a setting served from both an app setting and Key Vault resolves to Key Vault,
+> because the vault config source loads **last**. When the connection string moves stores, change
+> `Database__Provider` in the **same** step, or the old driver gets the new string
+> ([lessons — database economics](../lessons.md#database-economics--why-prod-moved-from-azure-sql-to-neon)).
 
 ### The forward-looking second candidate
 
@@ -38,10 +50,10 @@ Data Protection. Until then, skip it.
 
 ## Why Key Vault fits this project cleanly
 
-The hardest prerequisite is **already done**: the App Service has a **managed identity** — that's how
-it reaches Azure SQL passwordless. Key Vault reuses that *same* identity, so:
+The hardest prerequisite is **already done**: the App Service has a **managed identity** — originally
+how it reached Azure SQL passwordless. Key Vault reuses that *same* identity, so:
 
-- **No new credential is introduced** — it stays true to the "no passwords/secrets anywhere" design.
+- **No new credential is introduced** to reach the vault — the identity *is* the credential.
 - **The bootstrapping paradox is solved** — you don't need a secret to authenticate to the secret
   store, because the managed identity *is* the authentication.
 
@@ -216,6 +228,8 @@ settings because none of them are secrets.
 **Net change to the API config: delete `Jwt__Key`, add `KeyVault__Uri`.** Everything else is
 untouched — the same "only one real secret" story again: the connection string and Google client id
 *look* vault-worthy but contain no secret, so moving them adds ceremony with zero security gain.
+(That was true on passwordless Azure SQL. The later move to **Neon** added a password to the connection
+string, so it now lives in the vault as `ConnectionStrings--DefaultConnection` — see the table at the top.)
 
 Two things about how they coexist:
 

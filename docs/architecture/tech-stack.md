@@ -27,17 +27,26 @@ it's here. For the at-a-glance summary, see the [README](../../README.md).
   (`DbContext` + `DbSet`) behind the `IApplicationDbContext` port.
 - **SQLite** (local dev) and **PostgreSQL on Neon** (production) — the same code runs on both via a
   config-driven provider switch (`Database:Provider`). A value converter stores `DateTimeOffset` as UTC
-  ticks so SQLite can sort and compare them.
+  ticks so SQLite can sort and compare them. SQL Server / Azure SQL is still supported.
+- **Why Neon, not Azure SQL** — production started on Azure SQL serverless (free offer). It bills a
+  full hour every time the paused database wakes, so the free month covered only ~55 wakes, and it
+  took 30–60s to resume. Neon bills only the minutes the compute runs and resumes in ~1–2s. The
+  switch was config-only. Details: [why the database moved to Neon](../deployment/cold-starts.md#why-the-database-moved-to-neon).
 
 ## Auth & security
 
 - **JWT bearer tokens** — short-lived (15-minute) access tokens for API authentication.
 - **Refresh-token rotation with reuse detection** — refresh tokens are single-use; replaying an
-  already-rotated token revokes every session (theft response). Only SHA-256 hashes are stored.
+  already-rotated token revokes every session (theft response). Only SHA-256 hashes are stored. The
+  token travels in an **`httpOnly` cookie** (unreadable by JavaScript), with an `X-Refresh-CSRF`
+  header required on `/refresh`.
 - **Security-stamp revocation** — a stamp embedded in each token is re-checked on every request, so
   "sign out everywhere" works instantly despite JWTs being stateless.
-- **PBKDF2 password hashing** (`Rfc2898DeriveBytes`, 100k iterations, fixed-time comparison) — secure
-  local passwords.
+- **PBKDF2 password hashing** (`Rfc2898DeriveBytes`, 600k iterations, fixed-time comparison) — older
+  hashes are upgraded on next login. Registration rejects breached passwords (HIBP k-anonymity).
+- **Rate limiting** (ASP.NET Core `AddRateLimiter`) — 10 auth requests and 200 total requests per
+  minute per client IP; `429` + `Retry-After` when exceeded. Behind App Service it partitions on the
+  last `X-Forwarded-For` hop ([details](api-reference.md#rate-limiting)).
 - **Google Sign-In** (`Google.Apis.Auth`) — validates Google ID tokens and links/creates a local user.
 - **Azure Key Vault** (`Azure.Identity` / `ManagedIdentityCredential`) — holds the JWT signing key in
   production, read via the app's managed identity.
@@ -73,8 +82,8 @@ See the [testing guide](../development/testing.md) for how the suites are set up
   Neon replaced it because Azure SQL serverless bills a 60-minute minimum per wake, ~55 wakes a
   month on the free allowance.)
 - **Azure Static Web Apps** — hosts the built React SPA (`salmon-field`), with PR preview environments.
-- **Managed identity** — gives the app passwordless access to both SQL and Key Vault, so no database
-  credentials are stored anywhere.
+- **Managed identity** — gives the app passwordless access to Key Vault (and to Azure SQL, when that
+  provider is used). On Neon the database password lives only in Key Vault, never in config or the repo.
 
 ## CI/CD — GitHub Actions
 
