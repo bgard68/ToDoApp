@@ -3,7 +3,7 @@
 A full-stack, multi-user **Kanban board** — tasks flow across To Do / In Progress / Done
 lanes as draggable, category-colored post-it notes. The backend is an ASP.NET Core Web API
 organized with Clean Architecture (Domain / Application / Infrastructure / WebApi) using CQRS
-(MediatR), FluentValidation, and EF Core (SQLite). Authentication is JWT-based with
+(MediatR), FluentValidation, and EF Core (SQLite locally, PostgreSQL on Neon in production). Authentication is JWT-based with
 refresh-token rotation and **revocable tokens** for compromised accounts. The frontend
 is a React (Vite) single-page app.
 
@@ -41,7 +41,8 @@ is a React (Vite) single-page app.
   Application → Domain); handlers depend on interfaces, not EF Core or ASP.NET.
 - **JWT auth with real revocation** — short-lived access tokens carry a per-user security
   stamp; refresh tokens are hashed, single-use, and rotated with reuse detection. "Sign out
-  everywhere" instantly invalidates all sessions.
+  everywhere" instantly invalidates all sessions. The refresh token lives in an `httpOnly`
+  cookie, and auth endpoints are rate-limited per client IP.
 - **Google sign-in**, **per-user authorization** (cross-user access returns 404),
   **optimistic concurrency** (conflicting edits surface as 409), and **testable time**
   (the clock is abstracted behind `IDateTimeProvider`).
@@ -56,8 +57,8 @@ is a React (Vite) single-page app.
 
 - **Backend:** .NET 10 · ASP.NET Core Minimal APIs · Clean Architecture + CQRS (MediatR) · FluentValidation · EF Core 10 · Swagger
 - **Frontend:** React 18 · Vite 5 · custom hooks · `fetch`-based API client · Google Identity Services
-- **Data:** SQLite (dev) / PostgreSQL on Neon (prod) via a config-driven provider switch (SQL Server also supported)
-- **Auth:** JWT · refresh-token rotation + reuse detection · security-stamp revocation · PBKDF2 · Google sign-in · Key Vault
+- **Data:** SQLite (dev) / PostgreSQL on Neon (prod) via a config-driven provider switch (SQL Server also supported). Prod moved off Azure SQL serverless because it bills a full hour per wake — [why Neon](docs/deployment/cold-starts.md#why-the-database-moved-to-neon)
+- **Auth:** JWT · refresh-token rotation + reuse detection (httpOnly cookie) · security-stamp revocation · PBKDF2 · Google sign-in · rate limiting · Key Vault
 - **Testing:** Vitest + React Testing Library (frontend) · xUnit + FluentAssertions + `WebApplicationFactory` (backend)
 - **Hosting & CI/CD:** Azure App Service · Neon Postgres · Static Web Apps · GitHub Actions (OIDC)
 
@@ -126,8 +127,8 @@ in the **[testing guide](docs/development/testing.md)**.
 > **Deploying?** See the **[deployment overview](docs/deployment/overview.md)** for build/compile
 > and deploy anywhere (Docker Compose, Linux + nginx, Azure), plus the included `Dockerfile.api`,
 > the frontend's `Dockerfile` (on the `frontend` branch), `docker-compose.yml`, and `deploy/` samples. For a start-to-finish
-> **Azure** deploy (App Service + Static Web Apps, passwordless SQL, Google sign-in, CORS, Key
-> Vault), see the **[Azure guide](docs/deployment/azure.md)**. Hit a wall getting the API or Key
+> **Azure** deploy (App Service + Static Web Apps, Postgres on Neon or passwordless Azure SQL,
+> Google sign-in, CORS, Key Vault), see the **[Azure guide](docs/deployment/azure.md)**. Hit a wall getting the API or Key
 > Vault live? The **[troubleshooting log](docs/deployment/troubleshooting-log.md)** is a
 > chronological post-mortem of every symptom, root cause, and command.
 
@@ -142,7 +143,7 @@ with the **[Azure guide](docs/deployment/azure.md)**.
 - **[Infrastructure scripts](infra/README.md)** — provision / export / re-import the Azure stack as code (Bash + PowerShell): stand up the environment, capture an existing one to ARM/Bicep + app settings + Key Vault secret *names*, and rebuild a clone in one command. The IaC counterpart to the Azure guide.
 - **[Deployment overview](docs/deployment/overview.md)** — build, compile, and deploy anywhere (Docker Compose, Linux + nginx, Azure), with the included Dockerfiles and compose samples, plus production hardening.
 - **[Google sign-in](docs/deployment/google-signin.md)** — end-to-end Google sign-in setup: Cloud project, consent screen, OAuth client, wiring the client ID into the frontend and backend, and troubleshooting.
-- **[Key Vault](docs/deployment/key-vault.md)** — what this project stores in Azure Key Vault (just the JWT signing key), the two ways to wire it in, RBAC vs. access-policy, and how it stays optional locally.
+- **[Key Vault](docs/deployment/key-vault.md)** — what this project stores in Azure Key Vault (the JWT signing key and, on Neon, the database connection string), the two ways to wire it in, RBAC vs. access-policy, and how it stays optional locally.
 - **[Troubleshooting log](docs/deployment/troubleshooting-log.md)** — a chronological post-mortem of getting the API + Key Vault working on Azure: every symptom, how the logs were read (Kudu VFS API, `docker.log`), the root-cause chain, the clean rebuild, and every command used.
 - **[Pipeline testing & error handling](docs/deployment/pipeline.md)** — how the GitHub Actions pipeline is structured, how fail-fast + notifications stop a broken build from deploying, the "Verify publish output" guard, and how to test all of it.
 - **[Secret hygiene](docs/deployment/secret-hygiene.md)** — how Azure/app secrets are kept out of git: the hardened `.gitignore`, gitleaks scanning (pre-commit + a CI gate on every push/PR), what's tracked vs. ignored, and the audit confirming the tree and full history are clean.
@@ -151,7 +152,7 @@ with the **[Azure guide](docs/deployment/azure.md)**.
 **Architecture & design** — [`docs/architecture/`](docs/architecture/)
 
 - **[Tech stack](docs/architecture/tech-stack.md)** — the full stack (backend, frontend, data, auth, testing, hosting, CI/CD) with a one-line explanation of what each technology does and why.
-- **[API reference](docs/architecture/api-reference.md)** — the HTTP surface: the auth/authorization model, every endpoint with its auth requirement, how write conflicts are reported (409), and production-hardening notes.
+- **[API reference](docs/architecture/api-reference.md)** — the HTTP surface: the auth/authorization model (cookie-based refresh, revocation, roles and how to make an admin), rate limiting, every endpoint with its auth requirement, how write conflicts are reported (409), and production-hardening notes.
 - **[Request flow: login → board](docs/architecture/request-flow.md)** — a worked, end-to-end trace of one real path through the app, with a sequence diagram and the exact files/handlers involved.
 - **[Database schema](docs/architecture/database-schema.md)** — the physical data model: all five tables (Users, TodoItems, Categories, RefreshTokens, ExternalLogins) with their columns, keys, indexes, foreign-key cascade rules, an ER diagram, and the seed data.
 - **[Database portability](docs/architecture/database-portability.md)** — keeping behavior identical across relational providers (SQLite / SQL Server / PostgreSQL): the provider switch, collation & cascade gotchas, and what a non-relational port would take.
