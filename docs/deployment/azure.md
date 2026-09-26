@@ -1,9 +1,9 @@
 # Azure Deployment — Start-to-Finish Runbook
 
 A single ordered pass that takes TaskBoard from nothing to a fully working Azure deployment: the
-**.NET API** on App Service, **Azure SQL** with passwordless managed identity, the **React SPA** on
-Static Web Apps, **Google sign-in**, **CORS**, and the **JWT signing key in Key Vault** — with no
-secrets committed anywhere.
+**.NET API** on App Service, **Postgres on Neon** (or **Azure SQL** with passwordless managed
+identity), the **React SPA** on Static Web Apps, **Google sign-in**, **CORS**, and the **JWT signing
+key in Key Vault** — with no secrets committed anywhere.
 
 Follow it top to bottom. Each phase depends on the ones before it, and the ordering is deliberate — it
 avoids the chicken-and-egg traps (the managed identity must exist before the SQL grant; the SPA URL must
@@ -21,20 +21,26 @@ and the [Deployment overview](overview.md).
 ## What you end up with
 
 ```
-Browser ──> Azure Static Web Apps (React SPA) ──HTTPS──> Azure App Service (.NET API) ──> Azure SQL
-                                                              │                             (passwordless,
-Google Identity (ID token) ──> POST /api/auth/google ────────┘                              managed identity)
+Browser ──> Azure Static Web Apps (React SPA) ──HTTPS──> Azure App Service (.NET API) ──> Neon Postgres
+                                                              │                         (connection string
+Google Identity (ID token) ──> POST /api/auth/google ────────┘                          in Key Vault)
                                                               │
                                               Jwt:Key ◄── Azure Key Vault (managed identity)
 ```
 
+The database was originally **Azure SQL serverless** with passwordless managed identity; it moved to
+**Neon** because Azure SQL serverless bills a full hour per wake (~55 wakes exhaust the free month) and
+takes 30–60s to resume, versus Neon's per-minute billing and ~1–2s resume — see
+[why the database moved to Neon](cold-starts.md#why-the-database-moved-to-neon). Azure SQL is still fully
+supported (`Database__Provider=SqlServer`), and Phase 4 documents both.
+
 | Resource | Purpose | Secret stored? |
 | -------- | ------- | -------------- |
 | Resource group + App Service plan | hosting | — |
-| App Service (Linux, .NET 10) | the API | none — managed identity for SQL + Key Vault |
-| Azure SQL server + database | data | none — passwordless (Entra) |
+| App Service (Linux, .NET 10) | the API | none — managed identity for Key Vault (and Azure SQL, if used) |
+| Neon Postgres project (free plan) — *or* Azure SQL server + database | data | Neon: connection string (has a password) in Key Vault as `ConnectionStrings--DefaultConnection`. Azure SQL: none — passwordless (Entra) |
 | Static Web App | the SPA | none |
-| Key Vault (Standard) | the JWT signing key | `Jwt--Key` (the one real secret) |
+| Key Vault (Standard) | secrets | `Jwt--Key`, plus the Neon connection string when on Neon |
 
 The SPA and API deploy independently; the browser calls the API cross-origin, so the API's CORS must
 allow the SPA's origin (Phase 11). Google is only an identity source — the API still issues and revokes
@@ -101,8 +107,8 @@ az resource update -g $RG --namespace Microsoft.Web \
 
 ## Phase 3 — Turn on the App Service managed identity
 
-This identity authenticates to **both** SQL and Key Vault — no passwords anywhere. It must exist before
-the SQL grant and the Key Vault role assignment, so do it now.
+This identity authenticates to Key Vault (and, on the Azure SQL path, to the database — no password).
+It must exist before the Key Vault role assignment and any SQL grant, so do it now.
 
 ```bash
 az webapp identity assign -g $RG -n $API_APP
@@ -111,7 +117,7 @@ PRINCIPAL_ID=$(az webapp identity show -g $RG -n $API_APP --query principalId -o
 
 ---
 
-## Phase 4 — Azure SQL (passwordless)
+## Phase 4 — Database: Neon Postgres, or Azure SQL (passwordless)
 
 > **The deployed database is now Postgres on [Neon](https://neon.com)** — see
 > [cold starts](cold-starts.md#why-the-database-moved-to-neon) for why (Azure SQL serverless
@@ -178,7 +184,8 @@ Alternatives, if you don't want passwordless Azure SQL:
 
 ## Phase 5 — Key Vault for the JWT signing key
 
-The signing key is the **only** real secret (the DB is passwordless and the Google client id is public).
+The signing key is the main secret; on Neon the connection string is the other (see Phase 4). The Google
+client id is public, and on Azure SQL the database is passwordless.
 Use a **Vault, Standard tier** — not Managed HSM, which stores keys, not secrets. The repo ships the
 **configuration-provider** approach, activated by the `KeyVault__Uri` app setting.
 
@@ -221,8 +228,25 @@ az webapp config appsettings set -g $RG -n $API_APP --settings \
   Jwt__Audience="TodoAppClient" \
   Database__Provider="SqlServer" \
   ConnectionStrings__DefaultConnection="$SQL_CONNECTION" \
-  KeyVault__Uri="https://$KV.vault.azure.net/"
+  KeyVault__Uri="https://$KV.vault.azure.net/" \
+  RateLimiting__TrustForwardedFor="true" \
+  Database__InitializeOnStartup="true"
 ```
+
+`Database__InitializeOnStartup=true` lets the first boot create the schema; **set it back to `false`**
+once the API has started (Phase 7). Left on, every deploy and restart opens a connection just to check
+the schema — on a scale-to-zero database that is a billed wake-up. Demo seeding is also off by default;
+to get the demo account, add `Seed__DemoUser="true"` and a `Seed__Password` (ideally as a Key Vault
+secret `Seed--Password`).
+
+On **Neon**, use `Database__Provider="Postgres"` and drop the `ConnectionStrings__DefaultConnection`
+line — Key Vault supplies it from the `ConnectionStrings--DefaultConnection` secret (Phase 4).
+
+**Don't skip `RateLimiting__TrustForwardedFor`.** App Service is a reverse proxy, so without it every
+caller arrives from the platform's address and shares one rate-limit bucket — the whole site gets 10
+sign-ins and 200 requests a minute between them. With it, the API partitions on the last
+`X-Forwarded-For` hop, which App Service appends itself. See
+[API reference — rate limiting](../architecture/api-reference.md#rate-limiting).
 
 ---
 
@@ -237,7 +261,14 @@ az webapp deploy -g $RG -n $API_APP --src-path api.zip --type zip
 az webapp config set -g $RG -n $API_APP --startup-file "dotnet TodoApp.WebApi.dll"
 ```
 
-On first startup `EnsureCreated` builds the schema and seeds the demo user. **Verify:**
+On first startup `EnsureCreated` builds the schema (and seeds the demo user, if enabled). Then turn
+schema initialization back off:
+
+```bash
+az webapp config appsettings set -g $RG -n $API_APP --settings Database__InitializeOnStartup="false"
+```
+
+**Verify** (with the demo user, or an account you register):
 
 ```bash
 API_HOST=$(az webapp show -g $RG -n $API_APP --query defaultHostName -o tsv)
@@ -246,9 +277,9 @@ curl -s -X POST "https://$API_HOST/api/auth/login" \
   -d '{"email":"demo@todoapp.local","password":"Password123!"}'
 ```
 
-A token in the response proves the API, the Key Vault-sourced signing key, and the passwordless SQL
-connection all work together. (A clean startup in `az webapp log tail -g $RG -n $API_APP` is the first
-signal; if Key Vault or SQL is misconfigured, the app fails fast and you'll see it there.)
+A token in the response proves the API, the Key Vault-sourced signing key, and the database connection
+all work together. (A clean startup in `az webapp log tail -g $RG -n $API_APP` is the first signal; if
+Key Vault or the database is misconfigured, the app fails fast and you'll see it there.)
 
 > **⚠️ Capture the *regional* hostname.** `$API_HOST` above is the full regional default domain (e.g.
 > `todoapp-api-1234-abcdehg.centralus-01.azurewebsites.net`). Use **exactly this** for the SPA's
@@ -371,11 +402,12 @@ az webapp config appsettings set -g $RG -n $API_APP --settings \
 
 - [ ] **API up:** `https://$API_HOST/swagger` loads; `POST /api/auth/login` with the demo user returns a token.
 - [ ] **Key Vault:** API started cleanly (`az webapp log tail`) — proves the managed identity read `Jwt--Key`.
-- [ ] **SQL:** login/board data persists across an app restart — proves passwordless SQL, not the ephemeral fallback.
+- [ ] **Database:** login/board data persists across an app restart — proves the Neon (or Azure SQL) connection, not the ephemeral SQLite fallback.
+- [ ] **Rate limiting:** `az webapp config appsettings list -g $RG -n $API_APP -o table` shows `RateLimiting__TrustForwardedFor` = `true`.
 - [ ] **SPA up:** `$SWA_URL` loads, and the network calls hit the **regional** API host (not the short name).
 - [ ] **Auth end to end:** register/login on the live site, create a task, reload — it persists.
 - [ ] **Google:** the Google button appears and completes sign-in (its origin matches `$SWA_URL`).
-- [ ] **No secrets in the repo:** `appsettings.json` has empty `Jwt:Key`/`KeyVault:Uri`; the only stored secret is `Jwt--Key` in the vault.
+- [ ] **No secrets in the repo:** `appsettings.json` has empty `Jwt:Key`/`KeyVault:Uri`; secrets live only in the vault (`Jwt--Key`, and on Neon `ConnectionStrings--DefaultConnection`).
 
 ---
 
@@ -386,8 +418,11 @@ az webapp config appsettings set -g $RG -n $API_APP --settings \
 | JWT signing key | user-secret `Jwt:Key` | Key Vault secret `Jwt--Key` (via `KeyVault__Uri`); or app setting `Jwt__Key` / a `@Microsoft.KeyVault(...)` reference |
 | Key Vault URI | (unset → no vault) | App setting `KeyVault__Uri=https://<vault>.vault.azure.net/` — activates the vault config source |
 | Google client ID (API) | user-secret `Authentication:Google:ClientId` | App setting `Authentication__Google__ClientId` |
-| DB provider | (unset → SQLite) | App setting `Database__Provider=SqlServer` |
-| DB connection | user-secret / default SQLite | App setting `ConnectionStrings__DefaultConnection` (passwordless: `Authentication=Active Directory Default`) |
+| DB provider | (unset → SQLite) | App setting `Database__Provider=Postgres` (Neon) or `SqlServer` (Azure SQL) |
+| DB connection | user-secret / default SQLite | Neon: Key Vault secret `ConnectionStrings--DefaultConnection`. Azure SQL: app setting `ConnectionStrings__DefaultConnection` (passwordless: `Authentication=Active Directory Default`) |
+| Rate-limit client IP | (unset → connection address) | App setting `RateLimiting__TrustForwardedFor=true` |
+| Create schema on startup | `true` (Development) | `Database__InitializeOnStartup` — `true` for the first boot only, then `false` |
+| Demo account | seeded (Development) | `Seed__DemoUser=true` + `Seed__Password` — off by default |
 | Allowed CORS origins | n/a (dev proxy) | App setting `Cors__AllowedOrigins__0` = SPA URL |
 | API base URL (SPA) | `frontend/.env` `VITE_API_URL` (empty) | build-time `VITE_API_URL` = regional API URL |
 | Google client ID (SPA) | `frontend/.env` `VITE_GOOGLE_CLIENT_ID` | build-time `VITE_GOOGLE_CLIENT_ID` |
@@ -403,8 +438,9 @@ Rules of thumb: nested config keys map to env vars with `__` (double underscore)
 - **Regional hostname** for `VITE_API_URL` — the short `<app>.azurewebsites.net` form fails to resolve;
   always use `az webapp show --query defaultHostName`.
 - **SCM Basic Auth** must be enabled (Phase 2) or `az webapp deploy` is rejected.
-- **Serverless cold start** — first request after idle can take ~30–60s; `Connect Timeout=60` + the app's
-  transient retry handle it. A persistent 500 is a real error — check `az webapp log tail`.
+- **Serverless cold start** — on Azure SQL serverless the first request after idle can take ~30–60s
+  (Neon resumes in ~1–2s); `Connect Timeout=60` + the app's transient retry handle it. A persistent
+  500 is a real error — check `az webapp log tail`.
 - **Multiple cascade paths** — SQL Server rejects a cascade cycle SQLite allows; already fixed in code
   with `ClientCascade`. See [Database portability](../architecture/database-portability.md).
 - **Local dev is unaffected** — with no `KeyVault__Uri`, the app uses user-secrets and never calls Azure.
