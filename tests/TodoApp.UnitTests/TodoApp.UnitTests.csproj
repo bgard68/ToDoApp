@@ -14,7 +14,7 @@
     <PackageReference Include="xunit.runner.visualstudio" Version="4.0.0" />
     <PackageReference Include="FluentAssertions" Version="6.12.2" />
     <!-- Dapper + SQLite for the in-memory test database (schema built by SchemaInitializer). -->
-    <PackageReference Include="Dapper" Version="2.1.86" />
+    <PackageReference Include="Dapper" Version="2.1.89" />
     <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.12" />
     <!-- Security override: patched native SQLite (CVE-2025-6965 / NU1903). See Infrastructure.csproj. -->
     <PackageReference Include="SQLitePCLRaw.lib.e_sqlite3" Version="3.53.3" />

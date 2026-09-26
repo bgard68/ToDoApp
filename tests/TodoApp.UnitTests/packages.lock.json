@@ -4,9 +4,9 @@
     "net10.0": {
       "Dapper": {
         "type": "Direct",
-        "requested": "[2.1.86, )",
-        "resolved": "2.1.86",
-        "contentHash": "v5wQfl9GfHhfTeFhorWTefa8c1Ev4HO8VF8i8wbSdZkq+P/az+1DTcqpkz8s9lMGyFf9kvoeJ+b2ABShW4cuIA=="
+        "requested": "[2.1.89, )",
+        "resolved": "2.1.89",
+        "contentHash": "1VjFE664wnxvuhlgP8kS4PeFFF4jqD3VkbIHW6Zlc52zuibgcz5ICnIHcQXlTp6pURpPNGLV0ZpNe5x9KePJnA=="
       },
       "FluentAssertions": {
         "type": "Direct",
@@ -468,7 +468,7 @@
       "todoapp.infrastructure": {
         "type": "Project",
         "dependencies": {
-          "Dapper": "[2.1.86, )",
+          "Dapper": "[2.1.89, )",
           "Google.Apis.Auth": "[1.76.0, )",
           "Microsoft.Data.SqlClient": "[6.1.7, )",
           "Microsoft.Data.Sqlite": "[10.0.12, )",
