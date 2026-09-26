@@ -80,7 +80,8 @@ real problem, rather than sprinkling them on for show:
 - **Static factory methods** — `User.CreateExternal(...)` for password-less accounts and
   `Category.DefaultsFor(...)` for the starter set, keeping construction rules inside the domain.
 - **Strategy** — the persistence provider is chosen at composition time (`Database:Provider` →
-  SQLite locally, SQL Server in Azure) behind one registration.
+  SQLite locally, Postgres on Neon in production, SQL Server still supported) behind one registration.
+  The production switch from Azure SQL to Neon was a config change, which is the pattern paying off.
 - **RFC 7807 Problem Details** — a single `GlobalExceptionHandler` maps each application exception
   type to the correct status code and a structured body, so the API's error contract is uniform.
 
@@ -157,8 +158,8 @@ with scale, in roughly this order:
   read-side queries via Dapper) pays off.
 - **Team size.** With more contributors, "the handler can run any query" is less of a guardrail than a
   repository's explicit, named methods — the interface stops documenting what data access is allowed.
-- **Provider divergence.** The app already straddles SQLite and SQL Server; a third provider, or heavy
-  provider-specific SQL, magnifies the "query behavior leaks" problem.
+- **Provider divergence.** The app already straddles SQLite, SQL Server and Postgres; another provider,
+  or heavy provider-specific SQL, magnifies the "query behavior leaks" problem.
 
 **Recommendation** — *keep the current design.* For an app this size the pragmatic trade is the
 correct engineering call, and chasing the abstraction would add indirection users never feel. The one
