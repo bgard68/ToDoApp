@@ -52,10 +52,11 @@ export Jwt__Key="<a-long-random-secret>"
 The integration tests inject their own throwaway key via an environment variable, so
 `dotnet test` needs no setup.
 
-> **Using Azure Key Vault?** The JWT signing key is the one real secret this project has —
-> the database is passwordless (managed identity) and the Google client id is public, so
-> nothing else needs a vault. For what to store, the exact code changes, how it stays optional
-> so the app still runs locally without a vault, and how to verify it, see the
+> **Using Azure Key Vault?** The JWT signing key is the main secret. The only other one is the
+> production **Neon** connection string (it contains a password); on Azure SQL the database is
+> passwordless (managed identity). The Google client id is public. For what to store, the exact
+> code changes, how it stays optional so the app still runs locally without a vault, and how to
+> verify it, see the
 > **[Key Vault guide](../deployment/key-vault.md)**.
 
 ## Test the API locally
@@ -167,8 +168,11 @@ troubleshooting): **[Google sign-in guide](../deployment/google-signin.md)**.
 
 ## Database & migrations
 
-For simplicity the app calls `EnsureCreated()` at startup (no migration files). To switch
-to EF Core migrations:
+For simplicity the app calls `EnsureCreated()` at startup (no migration files) — but only when
+`Database:InitializeOnStartup` is `true`. It is on in `appsettings.Development.json` and **off** in
+`appsettings.json`: on a scale-to-zero database like Neon, opening a connection *is* the wake-up, so an
+unconditional schema check made every deploy and restart pay for one. Turn it on for the first boot
+against a new production database, then off again. To switch to EF Core migrations:
 
 ```bash
 dotnet tool install --global dotnet-ef
