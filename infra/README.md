@@ -6,7 +6,7 @@ environment on Azure, aligned to the live resource group `rg-taskboard`. Bash
 
 > **Where this fits:** these scripts live in **`infra/`** in the repo and are the scripted / infrastructure-as-code counterpart to the manual **[Azure deploy guide](../docs/deployment/azure.md)** and the **[Key Vault guide](../docs/deployment/key-vault.md)**. Run them from this `infra/` folder; exported output lands in `infra/azure-export/` (git-ignored).
 
-> 🔒 **Secure the output folder in git BEFORE your first export.** The export writes real secrets (JWT key, SQL connection strings) into `azure-export/`, and git only ignores files it isn't already tracking — so add `azure-export/` to the repo's **root** `.gitignore`, then **commit and push it** — all *before* any secret exists — and confirm with `git check-ignore -v azure-export/<file>` before exporting. (This repo already has that rule; repeat it when you point the toolkit at another repo or folder.) Step-by-step: **[Secure the secrets folder first](LOCAL-EXPORT-RUNBOOK.md#step-0--secure-the-secrets-folder-in-git-first)**.
+> 🔒 **Secure the output folder in git BEFORE your first export.** The export writes real secrets (JWT key, database connection string) into `azure-export/`, and git only ignores files it isn't already tracking — so add `azure-export/` to the repo's **root** `.gitignore`, then **commit and push it** — all *before* any secret exists — and confirm with `git check-ignore -v azure-export/<file>` before exporting. (This repo already has that rule; repeat it when you point the toolkit at another repo or folder.) Step-by-step: **[Secure the secrets folder first](LOCAL-EXPORT-RUNBOOK.md#step-0--secure-the-secrets-folder-in-git-first)**.
 
 ## Overview
 
@@ -55,6 +55,12 @@ scripts are modelled on this:
 | `taskboard-06-api` | Web app | **Linux** (`app,linux`) |
 | `oidc-msi-8552`, `oidc-msi-ac8b` | User-assigned managed identities | **OIDC / CI-CD** federated deploy |
 
+> **Since this capture, production data moved to Postgres on [Neon](https://neon.com)** (outside
+> Azure, so it has no ARM resource here). Azure SQL serverless bills a full hour every time the paused
+> database wakes, so its free month covered only ~55 wakes; Neon bills minutes used. The SQL server and
+> database above were kept as the rollback during cutover. See
+> [why the database moved to Neon](../docs/deployment/cold-starts.md#why-the-database-moved-to-neon).
+
 Notably there is **no storage account** in the live environment (so no static
 website is deployed there).
 
@@ -76,9 +82,9 @@ website is deployed there).
 | **User-assigned managed identity** (`<project>-oidc-msi`) | Standalone identity for OIDC / CI-CD federated deploys (GitHub Actions / Azure DevOps) |
 | App Service plan (**Linux**) | Compute for the web app (`F1`/Free by default) |
 | Web app (App Service) | Linux web app, HTTPS-only, with a system-assigned **managed identity** for Key Vault |
-| Azure SQL server + database | **General Purpose serverless Gen5** database, auto-pause, **free-limit** by default |
-| SQL firewall rule | "Allow Azure services" so the web app can reach the DB |
-| Key Vault | Holds the SQL connection string and SQL admin password (+ storage string if enabled) |
+| Database | **Default (`DB_PROVIDER=postgres` / `-DbProvider postgres`): nothing created in Azure** — you supply a Neon connection string, stored in Key Vault. With `sqlserver`: an Entra-only Azure SQL server + **General Purpose serverless Gen5** database (auto-pause, **free-limit** by default) and an "Allow Azure services" firewall rule |
+| Key Vault | Holds the secrets the app settings reference — the Neon connection string (`ConnectionStrings--DefaultConnection`) on the default path (+ storage string if enabled) |
+| App settings | `Database__Provider`, the connection-string reference, and `RateLimiting__TrustForwardedFor=true` (App Service is a reverse proxy — without it every caller shares one rate-limit bucket) |
 | *(optional)* Storage account + blob container + **static website** | Only when `ENABLE_STORAGE=true` / `-EnableStorage`; `StorageV2`, TLS 1.2, public access off, `$web` static hosting seeded with starter pages |
 
 The web app's app settings reference the Key Vault secrets, so connection strings
@@ -95,7 +101,6 @@ config.
 **Bash / Azure CLI**
 - [Azure CLI](https://aka.ms/azcli) installed
 - `az login` then `az account set --subscription <id-or-name>`
-- `openssl` (used to generate the SQL password)
 
 **PowerShell / Az**
 - PowerShell 7+ recommended
@@ -159,13 +164,14 @@ PROJECT=taskboard LOCATION=centralus APP_SKU=B1 SQL_MAX_VCORES=4 ./provision.sh
 | `LOCATION` | `-Location` | `centralus` | Azure region |
 | `RESOURCE_GROUP` | `-ResourceGroup` | `rg-<project>` | |
 | `APP_SKU` | `-AppSku` | `F1` | App Service plan SKU (Free). Use `B1`/`S1`/`P1v3` to scale up |
-| `RUNTIME` | `-Runtime` | `DOTNETCORE:8.0` (bash) / `DOTNETCORE\|8.0` (PS) | Linux runtime; e.g. `NODE:20-lts`, `PYTHON:3.12`, `JAVA:17` |
-| `SQL_MAX_VCORES` | `-SqlMaxVCores` | `2` | Serverless auto-scale ceiling |
-| `SQL_MIN_VCORES` | `-SqlMinVCores` | `0.5` | Serverless auto-scale floor |
-| `SQL_AUTO_PAUSE_MIN` | `-SqlAutoPauseMin` | `60` | Minutes idle before auto-pause |
-| `SQL_USE_FREE_LIMIT` | `-SqlUseFreeLimit` | `true` | Azure SQL free offer (one per subscription) |
-| `SQL_ADMIN_USER` | `-SqlAdminUser` | `sqladmin` | |
-| `SQL_ADMIN_PASSWORD` | `-SqlAdminPassword` | *(auto-generated)* | Stored in Key Vault if generated |
+| `RUNTIME` | `-Runtime` | `DOTNETCORE:10.0` (bash) / `DOTNETCORE\|10.0` (PS) | Linux runtime; e.g. `NODE:20-lts`, `PYTHON:3.12`, `JAVA:17` |
+| `DB_PROVIDER` | `-DbProvider` | `postgres` | `postgres` = Neon (no Azure database created); `sqlserver` = Entra-only Azure SQL |
+| `NEON_CONNECTION_STRING` | `-NeonConnectionString` (SecureString) | *(prompted, hidden)* | `postgres` only; stored in Key Vault as `ConnectionStrings--DefaultConnection` |
+| `SQL_MAX_VCORES` | `-SqlMaxVCores` | `2` | `sqlserver` only — serverless auto-scale ceiling |
+| `SQL_MIN_VCORES` | `-SqlMinVCores` | `0.5` | `sqlserver` only — serverless auto-scale floor |
+| `SQL_AUTO_PAUSE_MIN` | `-SqlAutoPauseMin` | `60` | `sqlserver` only — minutes idle before auto-pause |
+| `SQL_USE_FREE_LIMIT` | `-SqlUseFreeLimit` | `true` | `sqlserver` only — Azure SQL free offer (one per subscription) |
+| `ENTRA_ADMIN_NAME` / `ENTRA_ADMIN_SID` | `-EntraAdminName` / `-EntraAdminSid` | signed-in user | `sqlserver` only — Entra admin of the SQL server (no SQL login or password exists) |
 | `UAMI_NAME` | `-UamiName` | `<project>-oidc-msi` | User-assigned identity for CI/CD |
 | `KEYVAULT_NAME` | `-KeyVaultName` | `<project>-kv` | |
 | `ADOPT_EXISTING` | `-NoAdopt` | `true` / adopt on | Reuse the names of resources the group already holds. See [Discovering what already exists](#discovering-what-already-exists) |
@@ -233,13 +239,17 @@ PowerShell uses `New-AzFederatedIdentityCredential` (see the commented block in
 `Provision.ps1`). Then give the identity a scoped role, e.g. **Website
 Contributor** on the web app, and reference its `clientId` in your CI login step.
 
-## Retrieving the generated SQL password
+## Database credentials
+
+There is no generated SQL password any more. On `sqlserver` the server is **Entra-only** and the app
+connects as its managed identity; on `postgres` the only credential is the Neon connection string you
+supply, which lands in Key Vault. To read it back:
 
 ```bash
-az keyvault secret show --vault-name <kv-name> --name SqlAdminPassword --query value -o tsv
+az keyvault secret show --vault-name <kv-name> --name ConnectionStrings--DefaultConnection --query value -o tsv
 ```
 ```powershell
-Get-AzKeyVaultSecret -VaultName <kv-name> -Name SqlAdminPassword -AsPlainText
+Get-AzKeyVaultSecret -VaultName <kv-name> -Name ConnectionStrings--DefaultConnection -AsPlainText
 ```
 
 ## Tear down
@@ -458,8 +468,8 @@ What the import does:
 - **App settings** (`IMPORT_SETTINGS_FILE` / `-ImportSettingsFile`) — every line of
   the `.settings.env` is applied to the new web app (e.g. `Jwt__Issuer`,
   `Jwt__Audience`, `ASPNETCORE_ENVIRONMENT`). Any `@kv:<SecretName>` value is
-  rewritten to reference the **new** vault. The script's own freshly-built
-  `SqlConnectionString` is kept (a stale captured one won't overwrite it).
+  rewritten to reference the **new** vault. The script's own database settings are kept
+  (a captured `ConnectionStrings__DefaultConnection` / `SqlConnectionString` won't overwrite them).
 
 Both scripts **merge** rather than replace, so existing settings on the app are
 preserved.
@@ -527,12 +537,8 @@ Applies across provision, export, and import.
 
 ## Notes & possible next steps
 
-- The "Allow Azure services" firewall rule (`0.0.0.0`) is convenient but broad.
-  For tighter security, switch to a **Private Endpoint** / VNet integration, or
-  use **Microsoft Entra (Azure AD) authentication** to SQL with the web app's
-  managed identity instead of a SQL admin password.
-- The scripts use SQL auth for the connection string. If you prefer passwordless
-  access end-to-end, we can add `Authentication=Active Directory Managed Identity`
-  and grant the identity a DB role.
+- On `sqlserver`, the "Allow Azure services" firewall rule (`0.0.0.0`) is convenient but broad.
+  For tighter security, switch to a **Private Endpoint** / VNet integration. (Authentication is
+  already Entra-only via the web app's managed identity — no SQL admin password.)
 - For repeatable, reviewable deployments consider **Bicep** or **Terraform** —
   happy to port this to either.
