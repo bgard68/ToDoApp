@@ -12,6 +12,14 @@ and what now stops each one coming back.
 Findings are referenced by their review ID (H = high, M = medium, L = low) throughout the code, so
 `grep -rn "finding H3"` lands on the control rather than on this page.
 
+> **Note on the container findings.** `Dockerfile.api`, `docker-compose.yml` and
+> `.github/workflows/container-build.yml` have since been **removed** from `main` and `dapper`: the
+> image was never on the deployment path (App Service takes a `dotnet publish` zip), and its
+> digest-pinned base repeatedly lagged upstream CVE fixes, blocking unrelated pull requests. The
+> container-specific items below (the non-root `USER app`, the lock-file restore, the Trivy gate,
+> L3 and the healthcheck notes) are kept as a record of what was done at the time; they no longer
+> describe files in this branch. The frontend branch keeps its own Dockerfile and scan.
+
 **Branch policy:** `main` (EF Core) and `dapper` (Dapper) are maintained in parallel — `dapper`
 is *not* merged into `main`. Every application-layer fix below was therefore applied to both
 branches independently, and the shared regression tests run on both.
