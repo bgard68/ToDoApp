@@ -13,7 +13,7 @@ Findings are referenced by their review ID (H = high, M = medium, L = low) throu
 `grep -rn "finding H3"` lands on the control rather than on this page.
 
 > **Note on the container findings.** `Dockerfile.api`, `docker-compose.yml` and
-> `.github/workflows/container-build.yml` have since been **removed** from `main` and `dapper`: the
+> the container-build workflow have since been **removed** from `main` and `dapper`: the
 > image was never on the deployment path (App Service takes a `dotnet publish` zip), and its
 > digest-pinned base repeatedly lagged upstream CVE fixes, blocking unrelated pull requests. The
 > container-specific items below (the non-root `USER app`, the lock-file restore, the Trivy gate,
@@ -245,7 +245,7 @@ branch — so the React/Vite tree on `frontend` was monitored by nothing at all.
 > GitHub rejects an advanced-setup workflow while default setup is active. This is called out at
 > the top of `codeql.yml`.
 
-**Now closed.** `.github/workflows/container-build.yml` builds the image and scans it with Trivy,
+**Now closed.** the container-build workflow builds the image and scans it with Trivy,
 uploading SARIF to the Security tab, and asserts it does not run as root.
 
 ---
@@ -288,7 +288,7 @@ check. Liveness is probed externally against `GET /`, which returns a static pay
 touching the database. This is documented in the Dockerfile itself.
 
 **Verified in CI, not locally.** The Docker engine wasn't running on the machine this work was
-done on. Rather than leave the image unproven, `.github/workflows/container-build.yml` now builds
+done on. Rather than leave the image unproven, the container-build workflow now builds
 and checks it on every relevant change — which turned out better than a local build would have
 been:
 
