@@ -61,4 +61,32 @@ public class GetTodosOrderingTests
         loaded.CreatedAt.Should().Be(when);
         loaded.DueDate.Should().Be(when);
     }
+
+    // Contract test for case-insensitive search. NOTE: SQLite's LIKE is already case-insensitive
+    // for ASCII, so this passes on the test harness regardless — the LOWER() fix is what makes it
+    // hold on Postgres (prod), whose LIKE is case-sensitive. Kept for parity with the EF branch and
+    // to guard the intended behaviour.
+    [Fact]
+    public async Task GetTodos_SearchIsCaseInsensitive()
+    {
+        using var db = new TestDatabase();
+        var user = new User("s@x.com", "hash", _clock.UtcNow);
+        await db.Users.AddAsync(user, CancellationToken.None);
+
+        var now = _clock.UtcNow;
+        await db.Todos.AddAsync(
+            new TodoItem(user.Id, "Email Sarah about the proposal", null, Priority.Medium, null, null, now),
+            CancellationToken.None);
+        await db.Todos.AddAsync(
+            new TodoItem(user.Id, "Pay AWS invoice", null, Priority.Medium, null, null, now),
+            CancellationToken.None);
+
+        var handler = new GetTodosQueryHandler(db.Todos, new FakeCurrentUserService { UserId = user.Id });
+
+        var lower = await handler.Handle(new GetTodosQuery { Search = "sarah" }, CancellationToken.None);
+        lower.Select(t => t.Title).Should().BeEquivalentTo(["Email Sarah about the proposal"]);
+
+        var upper = await handler.Handle(new GetTodosQuery { Search = "AWS" }, CancellationToken.None);
+        upper.Select(t => t.Title).Should().BeEquivalentTo(["Pay AWS invoice"]);
+    }
 }

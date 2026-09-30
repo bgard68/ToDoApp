@@ -32,8 +32,13 @@ public sealed class TodoRepository : RepositoryBase, ITodoRepository
 
         if (!string.IsNullOrWhiteSpace(search))
         {
-            sql.Append(@" AND (Title LIKE @Search ESCAPE '\' OR (Description IS NOT NULL AND Description LIKE @Search ESCAPE '\'))");
-            parameters.Add("Search", $"%{EscapeLike(search.Trim())}%");
+            // Case-insensitive so "sarah" finds "Email Sarah about the proposal". LOWER() on both
+            // the column and the term makes this consistent across providers: Postgres LIKE is
+            // case-sensitive (prod would otherwise miss it), while SQLite LIKE is case-insensitive
+            // for ASCII already — LOWER() aligns them. LOWER is standard SQL, and the wildcards live
+            // in the parameter, so there is no concat-operator portability issue.
+            sql.Append(@" AND (LOWER(Title) LIKE @Search ESCAPE '\' OR (Description IS NOT NULL AND LOWER(Description) LIKE @Search ESCAPE '\'))");
+            parameters.Add("Search", $"%{EscapeLike(search.Trim().ToLower())}%");
         }
 
         // High priority first, then soonest due (nulls last), then newest — the board buckets by status.
