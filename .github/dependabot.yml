@@ -68,25 +68,6 @@ updates:
       - dependency-name: "Microsoft.Data.SqlClient"
         update-types: ["version-update:semver-major"]
 
-
-  # Base images for the API container (Dockerfile.api). Digest pinning is what makes the
-  # build reproducible, and it is also what makes this entry necessary: a digest never
-  # floats, so without Dependabot nothing re-pins it and the base silently ages.
-  #
-  # That is survivable only while the findings in a stale base are unfixable — `ignore-unfixed`
-  # on the scan gate drops those. The first FIXABLE CVE in a pinned base fails
-  # `Container build & scan` correctly, and with no entry here there is no automated route to
-  # a newer digest: it becomes a hand-bump, blocking every other update on the branch until
-  # somebody does it. That is the shape of the outage #153 fixed, arriving by a second route.
-  - package-ecosystem: "docker"
-    directory: "/"
-    schedule:
-      interval: "weekly"
-    open-pull-requests-limit: 5
-    groups:
-      docker:
-        patterns: ["*"]
-
   # GitHub Actions on the dapper branch. Dependabot only reads this file from the DEFAULT branch,
   # so every branch that needs updates must be declared here explicitly (review finding M6).
   - package-ecosystem: "github-actions"
@@ -131,19 +112,6 @@ updates:
         update-types: ["version-update:semver-major"]
       - dependency-name: "Microsoft.Data.SqlClient"
         update-types: ["version-update:semver-major"]
-
-
-  # Same, for dapper's Dockerfile.api. Declared here because Dependabot reads this file only
-  # from the default branch (review finding M6).
-  - package-ecosystem: "docker"
-    directory: "/"
-    target-branch: "dapper"
-    schedule:
-      interval: "weekly"
-    open-pull-requests-limit: 5
-    groups:
-      docker:
-        patterns: ["*"]
 
   # The React SPA lives on the 'frontend' branch. Without these entries its dependency tree —
   # React, Vite, Vitest and everything transitive — was monitored by nothing at all (M6).

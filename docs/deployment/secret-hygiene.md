@@ -29,9 +29,9 @@ The rest of this doc covers layers 2–4.
 `.gitignore` only stops files git isn't **already** tracking — so these rules were added *before*
 any secret existed. Key entries in the hardened ignore list:
 
-- **Env files:** `.env` and `.env.*` are ignored, with `!.env.example` re-included so the blank
-  template stays tracked. (A bare `.env` is the most common leak; `.env.*` alone does **not** match
-  it, so both are listed.)
+- **Env files:** `.env` and `.env.*` are ignored. (A bare `.env` is the most common leak; `.env.*`
+  alone does **not** match it, so both are listed.) The tracked `.env.example` template was removed
+  along with docker-compose — local config comes from user-secrets, production from App Service.
 - **Azure Connected Services / Visual Studio files** that can carry endpoints, keys, or deploy
   creds: `serviceDependencies.json`, `serviceDependencies.local.json`, `ServiceConfiguration.*.cscfg`,
   `ApplicationInsights.config`, `local.settings.json`, `*.publishsettings`, `azureauth.json`, `.azure/`.
@@ -42,7 +42,7 @@ any secret existed. Key entries in the hardened ignore list:
   connection strings there — it must never be tracked).
 
 **Deliberately kept tracked** (they contain no secrets): `appsettings.json`,
-`appsettings.Development.json`, `launchSettings.json`, and `.env.example`.
+`appsettings.Development.json`, and `launchSettings.json`.
 
 ### Verifying an ignore rule
 
@@ -198,7 +198,7 @@ acts before or regardless of a local commit:
 
 A full scan was run across `main`, `dapper`, and `frontend`:
 
-- **Current tree — clean.** The only sensitive-named tracked files are `.env.example`,
+- **Current tree — clean.** The only sensitive-named tracked files are
   `appsettings.json`, `appsettings.Development.json`, and `launchSettings.json`, and every secret
   field in them is an empty placeholder.
 - **`azure-export/` — not tracked** on any branch.
