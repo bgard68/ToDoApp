@@ -35,10 +35,15 @@ public class GetTodosQueryHandler : IRequestHandler<GetTodosQuery, IReadOnlyList
 
         if (!string.IsNullOrWhiteSpace(request.Search))
         {
-            var term = request.Search.Trim();
+            // Case-insensitive so "sarah" finds "Email Sarah about the proposal". Lowering both
+            // sides keeps this portable across the app's providers (SQLite locally, Postgres in
+            // prod) — unlike Npgsql's ILike, which only translates on Postgres. EF renders this as
+            // instr(lower(col), @term) > 0 / strpos(lower(col), @term); at a user's todo scale the
+            // LOWER() costs nothing.
+            var term = request.Search.Trim().ToLower();
             query = query.Where(t =>
-                t.Title.Contains(term) ||
-                (t.Description != null && t.Description.Contains(term)));
+                t.Title.ToLower().Contains(term) ||
+                (t.Description != null && t.Description.ToLower().Contains(term)));
         }
 
         // Ordered so each lane reads high-priority / soonest-due first; the board buckets by status.
