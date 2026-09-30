@@ -91,8 +91,7 @@ az webapp create -g $RG -p $PLAN -n $API_APP --runtime "DOTNETCORE:10.0"
 ```
 
 > If `DOTNETCORE:10.0` isn't offered in your region yet, run `az webapp list-runtimes --os linux | grep
-> DOTNET`, or deploy the container image (`Dockerfile.api` → ACR → App Service for Containers), or
-> publish `--self-contained`.
+> DOTNET`, or publish `--self-contained`.
 
 **Enable Basic Auth publishing** (App Service ships with SCM Basic Auth *off*, which blocks
 `az webapp deploy`):

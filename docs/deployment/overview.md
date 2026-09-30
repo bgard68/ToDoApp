@@ -9,11 +9,10 @@ For a feature overview see the [README](../../README.md); for the HTTP endpoints
 - [4. Run locally](#4-run-locally-development)
 - [5. Configuration & secrets](#5-configuration--secrets)
 - [6. Database in production](#6-database-in-production)
-- [7. Deploy — Docker Compose](#7-deploy--docker-compose-recommended)
-- [8. Deploy — Linux server (systemd + nginx)](#8-deploy--linux-server-systemd--nginx)
-- [9. Deploy — Azure App Service](#9-deploy--azure-app-service)
-- [10. Hosting the frontend](#10-hosting-the-frontend)
-- [11. Post-deploy checklist](#11-post-deploy-checklist)
+- [7. Deploy — Linux server (systemd + nginx)](#7-deploy--linux-server-systemd--nginx)
+- [8. Deploy — Azure App Service](#8-deploy--azure-app-service)
+- [9. Hosting the frontend](#9-hosting-the-frontend)
+- [10. Post-deploy checklist](#10-post-deploy-checklist)
 
 ---
 
@@ -24,7 +23,6 @@ For a feature overview see the [README](../../README.md); for the HTTP endpoints
 | .NET SDK | 10.0+ | `dotnet --version` |
 | Node.js | 18+ (20/22 recommended) | `node --version` |
 | npm | 9+ | `npm --version` |
-| Docker (optional) | 24+ | `docker --version` |
 | Git | any | `git --version` |
 
 Visual Studio 2026 (or Rider / VS Code) is optional — everything below works from the CLI.
@@ -146,35 +144,9 @@ dotnet ef database update \
 
 ---
 
-## 7. Deploy — Docker Compose (recommended)
+## 7. Deploy — Linux server (systemd + nginx)
 
-The repo includes `Dockerfile.api`, `frontend/Dockerfile`, `frontend/nginx.conf`, and
-`docker-compose.yml`. The API runs internally; nginx serves the SPA and proxies `/api` to
-it, so the browser only ever talks to one origin (no CORS to configure).
-
-```bash
-cp .env.example .env
-# set JWT_KEY (openssl rand -base64 48) and optionally GOOGLE_CLIENT_ID in .env
-
-docker compose up --build          # build images and start
-# open http://localhost:8080
-```
-
-SQLite data persists in the `todo-data` named volume. To build the images individually:
-
-```bash
-docker build -f Dockerfile.api -t todoapp-api .
-docker build -t todoapp-web ./frontend
-```
-
-Put a TLS-terminating proxy (or your cloud load balancer) in front of the `web` container
-for HTTPS in production.
-
----
-
-## 8. Deploy — Linux server (systemd + nginx)
-
-For a VM without Docker. Publish, copy the artifacts, run the API under systemd, and let
+For a VM. Publish, copy the artifacts, run the API under systemd, and let
 nginx serve the SPA and proxy the API. Sample files are in `deploy/`.
 
 ```bash
@@ -209,7 +181,7 @@ published `--self-contained`.
 
 ---
 
-## 9. Deploy — Azure App Service
+## 8. Deploy — Azure App Service
 
 A full, step-by-step Azure walkthrough — API on **App Service**, React on **Static Web
 Apps**, plus **Google sign-in** and **Key Vault** secrets — lives in the **[Azure guide](azure.md)**.
@@ -233,12 +205,12 @@ URL at build time), or serve it from the same App Service via the reverse-proxy 
 
 ---
 
-## 10. Hosting the frontend
+## 9. Hosting the frontend
 
 The SPA is a static bundle (`frontend/dist`) and can be hosted two ways:
 
-**A. Same origin as the API (recommended).** A reverse proxy (the nginx samples, Compose,
-or App Service) serves the static files and forwards `/api` to the backend. Build with
+**A. Same origin as the API (recommended).** A reverse proxy (the nginx samples or
+App Service) serves the static files and forwards `/api` to the backend. Build with
 `VITE_API_URL` empty so the app calls `/api` on its own origin — no CORS needed.
 
 **B. Separate static host (Netlify / Vercel / S3+CloudFront / Static Web Apps).** Set the
@@ -258,7 +230,7 @@ Rebuild the SPA whenever `VITE_API_URL` changes (Vite inlines env vars at build 
 
 ---
 
-## 11. Post-deploy checklist
+## 10. Post-deploy checklist
 
 - [ ] `Jwt__Key` is a strong random secret supplied via env/secret store (not in a file).
 - [ ] HTTPS terminated at the proxy/load balancer; `X-Forwarded-Proto` forwarded.
