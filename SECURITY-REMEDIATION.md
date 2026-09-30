@@ -7,6 +7,14 @@ The API branches (`main`, `dapper`) carry their own copy of this write-up at
 `docs/development/security-remediation.md`. They are maintained in parallel — `dapper` is not
 merged from `main` — so every shared fix was applied to each branch independently.
 
+> **Note on the container findings.** The `Dockerfile` and the container-build workflow have since
+> been **removed** from this branch (and the API branches): the image was never on the deployment
+> path — this branch ships the built `dist/` to Azure Static Web Apps — and its digest-pinned base
+> repeatedly lagged upstream CVE fixes, blocking unrelated pull requests. The container-specific
+> notes below are kept as a record of what was done at the time. **`nginx.conf` is retained**: it is
+> the reference config for serving the built SPA behind nginx, and `src/lib/csp.test.js` still
+> asserts it carries the same CSP hash and baseline headers as the SWA config.
+
 ---
 
 ## H2 (HIGH) — No CSP or security headers, with the refresh token in `localStorage`
