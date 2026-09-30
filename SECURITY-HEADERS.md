@@ -10,7 +10,12 @@ Headers are now set in **both** delivery paths, and they must stay in step:
 | Path | File | Used by |
 |---|---|---|
 | Azure Static Web Apps (production) | `staticwebapp.config.json` → `globalHeaders` | the deployed site |
-| nginx container (docker compose) | `nginx.conf` → `add_header` | local full-stack runs |
+| nginx | `nginx.conf` → `add_header` | any nginx-fronted deploy of the built `dist/` |
+
+> The Dockerfile that used to consume `nginx.conf` has been removed — it was never on the
+> deployment path (this branch ships to Static Web Apps). `nginx.conf` is kept as the reference
+> configuration for serving the built SPA behind nginx, and `src/lib/csp.test.js` still asserts it
+> carries the same CSP hash and baseline headers as the SWA config, so the two cannot drift.
 
 ## Two values that must be kept in sync
 
