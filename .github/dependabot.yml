@@ -162,16 +162,3 @@ updates:
     groups:
       github-actions:
         patterns: ["*"]
-
-  # frontend's Dockerfile — node:22-alpine to build the bundle, nginx-unprivileged to serve it.
-  # Both digest-pinned, and it is this branch that has already had a dependency update blocked
-  # by the image scan, so it is the one least able to absorb a base nobody is updating.
-  - package-ecosystem: "docker"
-    directory: "/"
-    target-branch: "frontend"
-    schedule:
-      interval: "weekly"
-    open-pull-requests-limit: 5
-    groups:
-      docker:
-        patterns: ["*"]
