@@ -3,6 +3,9 @@
 Two slideshows explaining how TaskBoard handles sign-in, access, revocation and rate limiting —
 one for a general audience, one for developers. Each is a single self-contained HTML file.
 
+Written versions that read directly on GitHub: **[for everyone](../security/for-everyone.md)** ·
+**[for developers](../security/for-developers.md)**.
+
 | Deck | Audience | Slides | What it covers |
 | ---- | -------- | ------ | -------------- |
 | **[Security walkthrough](security-walkthrough.html)** | Non-technical | 10 | The whole flow told through everyday things: a hotel key card, a driver's license hologram, changing your locks after losing your keys, a phone passcode lockout. No jargon on the slides; the last slide maps each analogy to its technical term. |
