@@ -1,0 +1,420 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>TaskBoard Auth Internals</title>
+<style>:root{color-scheme:light}body{margin:0}img{max-width:100%}[hidden]{display:none!important}</style>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;700;800&family=Source+Sans+3:wght@400;600&family=IBM+Plex+Mono:wght@500&display=swap">
+<style>
+/* Layout: one slide at a time on a stage, with a fixed nav bar (arrow keys, dots, back/next). */
+:root{
+  --bg:#EEF1F4; --panel:#FFFFFF; --ink:#18212E; --muted:#5A6676; --line:#D5DBE3;
+  --accent:#D65A1F;       /* lanyard orange */
+  --ok:#1E7A6E; --ok-soft:#DCEFEA;
+  --no:#B3261E; --no-soft:#F6E0DE;
+  --accent-soft:#FBE7DC;
+  --display:"Archivo","Arial Narrow",system-ui,sans-serif;
+  --body:"Source Sans 3","Segoe UI",system-ui,sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#12171F; --panel:#1B222D; --ink:#E8ECF1; --muted:#9AA5B4; --line:#2E3847;
+  --accent:#F07A3C; --ok:#4FB8A6; --ok-soft:#173A36; --no:#F07068; --no-soft:#3E2020; --accent-soft:#3D2517;
+  color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#12171F; --panel:#1B222D; --ink:#E8ECF1; --muted:#9AA5B4; --line:#2E3847;
+  --accent:#F07A3C; --ok:#4FB8A6; --ok-soft:#173A36; --no:#F07068; --no-soft:#3E2020; --accent-soft:#3D2517;
+  color-scheme:dark}
+
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font-family:var(--body);font-size:1.05rem;line-height:1.5;padding-inline:16px;padding-block:20px 90px}
+.deck{max-width:1040px;margin-inline:auto}
+.slide{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:clamp(22px,4vw,52px);min-height:min(620px,78vh);display:flex;flex-direction:column;gap:22px;animation:in .35s ease}
+@keyframes in{from{transform:translateY(8px)}to{transform:none}}
+@media (prefers-reduced-motion:reduce){.slide{animation:none}}
+.eyebrow{font-family:var(--mono);font-size:.78rem;letter-spacing:.12em;text-transform:uppercase;color:var(--accent)}
+h1,h2{overflow-wrap:anywhere;font-family:var(--display);font-weight:800;line-height:1.05;margin:0;text-wrap:balance;letter-spacing:-.01em}
+h1{font-size:clamp(2.2rem,6vw,4rem)}
+h2{font-size:clamp(1.7rem,4vw,2.6rem)}
+h3{font-family:var(--display);font-weight:700;font-size:1.15rem;margin:0}
+p{margin:0;max-width:62ch}
+.lead{font-size:1.2rem;color:var(--muted);max-width:56ch}
+.muted{color:var(--muted)}
+.grid{display:grid;gap:16px;grid-template-columns:repeat(auto-fit,minmax(210px,1fr))}
+.grid > *{min-width:0}
+.two{display:grid;gap:28px;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));align-items:start}
+.two > *{min-width:0}
+.card{border:1px solid var(--line);border-radius:10px;padding:18px;display:flex;flex-direction:column;gap:8px}
+.card .tag{font-family:var(--mono);font-size:.75rem;color:var(--muted);letter-spacing:.06em;text-transform:uppercase}
+.ok{background:var(--ok-soft);border-color:transparent}
+.no{background:var(--no-soft);border-color:transparent}
+.hl{background:var(--accent-soft);border-color:transparent}
+.pill{display:inline-block;font-family:var(--mono);font-size:.78rem;padding:3px 9px;border-radius:99px;font-weight:500}
+.pill.ok{color:var(--ok)} .pill.no{color:var(--no)}
+ul.clean{list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:10px}
+ul.clean li{display:flex;gap:12px;align-items:baseline}
+ul.clean li b{font-family:var(--display)}
+.check{color:var(--ok);font-weight:700;flex:none}
+
+/* journey strip */
+.journey{display:flex;flex-wrap:wrap;gap:10px;align-items:stretch}
+.stop{flex:1 1 150px;min-width:0;border:1px solid var(--line);border-radius:10px;padding:14px;display:flex;flex-direction:column;gap:6px;position:relative}
+.stop .n{font-family:var(--mono);font-size:.75rem;color:var(--accent)}
+.stop h3{font-size:1.05rem}
+.stop p{font-size:.95rem;color:var(--muted)}
+.stop.on{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent) inset}
+
+/* the badge */
+.badge{width:min(320px,100%);border-radius:16px;border:1px solid var(--line);background:var(--bg);padding:0 0 18px;overflow:hidden;justify-self:center;align-self:center;position:relative}
+.badge .clip{width:56px;height:10px;border-radius:0 0 8px 8px;background:var(--accent);margin:0 auto 14px}
+.badge .top{padding:0 20px;display:flex;justify-content:space-between;align-items:center}
+.badge .org{font-family:var(--display);font-weight:800;letter-spacing:.04em}
+.badge dl{margin:14px 20px 0;display:grid;grid-template-columns:auto 1fr;gap:6px 14px;font-size:.95rem}
+.badge dt{font-family:var(--mono);font-size:.75rem;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;padding-top:2px}
+.badge dd{margin:0;font-weight:600}
+.seal{margin:16px 20px 0;border-top:1px dashed var(--line);padding-top:12px;display:flex;gap:10px;align-items:center;font-size:.85rem;color:var(--muted)}
+.seal i{width:34px;height:34px;border-radius:50%;flex:none;background:conic-gradient(var(--accent),var(--ok),var(--accent));opacity:.85}
+
+/* flow rows */
+.flow{display:flex;flex-direction:column;gap:10px}
+.row{display:grid;grid-template-columns:120px 1fr;gap:14px;align-items:baseline;padding:12px 0;border-top:1px solid var(--line)}
+.row:first-child{border-top:0}
+.row .who{font-family:var(--mono);font-size:.8rem;color:var(--accent);text-transform:uppercase;letter-spacing:.06em}
+@media (max-width:520px){.row{grid-template-columns:1fr;gap:4px}}
+
+.big{font-family:var(--display);font-weight:800;font-size:clamp(2.4rem,6vw,3.4rem);line-height:1;font-variant-numeric:tabular-nums}
+.foot{margin-top:auto;font-size:.9rem;color:var(--muted);border-top:1px solid var(--line);padding-top:14px}
+
+/* nav */
+.nav{position:fixed;left:0;right:0;bottom:0;padding:12px 16px calc(12px + env(safe-area-inset-bottom,0px));background:var(--panel);border-top:1px solid var(--line);display:flex;gap:12px;align-items:center;justify-content:center}
+.nav button{font:600 1rem var(--body);color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:8px 16px;cursor:pointer}
+.nav button:hover:not(:disabled){border-color:var(--accent)}
+.nav button:disabled{opacity:.4;cursor:default}
+.nav button:focus-visible,.dots button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.dots{display:flex;gap:6px;flex-wrap:wrap;justify-content:center}
+.dots button{width:10px;height:10px;padding:0;border-radius:50%;border:0;background:var(--line);cursor:pointer}
+.dots button[aria-current="true"]{background:var(--accent);width:24px;border-radius:6px}
+@media (max-width:520px){.nav{gap:8px}.nav button{padding:8px 10px}.count{display:none}.dots{gap:4px}}
+.count{font-family:var(--mono);font-size:.8rem;color:var(--muted);min-width:4.5em;text-align:center;font-variant-numeric:tabular-nums}
+.everyday{border-left:4px solid var(--accent);background:var(--accent-soft);border-radius:0 10px 10px 0;padding:14px 18px;display:flex;flex-direction:column;gap:6px}
+.everyday .tag{font-family:var(--mono);font-size:.75rem;letter-spacing:.08em;text-transform:uppercase;color:var(--accent)}
+.everyday p{font-size:1.08rem}
+.big-everyday p{font-size:1.2rem}
+pre.code{margin:0;background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:14px 16px;overflow-x:auto;font-family:var(--mono);font-size:.82rem;line-height:1.55;max-width:100%}
+pre.code .c{color:var(--muted)} pre.code .k{color:var(--accent)} pre.code .s{color:var(--ok)}
+code{overflow-wrap:anywhere;font-family:var(--mono);font-size:.88em;background:var(--bg);border:1px solid var(--line);border-radius:5px;padding:0 5px}
+.tbl{overflow-x:auto;max-width:100%}
+table{border-collapse:collapse;width:100%;font-size:.95rem;font-variant-numeric:tabular-nums}
+th,td{text-align:left;padding:9px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font-family:var(--mono);font-size:.75rem;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);font-weight:500}
+.pipe{display:flex;flex-wrap:wrap;gap:8px;align-items:center;font-family:var(--mono);font-size:.85rem}
+.pipe span{border:1px solid var(--line);border-radius:8px;padding:8px 12px;background:var(--bg)}
+.pipe span.on{border-color:var(--accent);color:var(--accent)}
+.pipe b{color:var(--muted);font-weight:400}
+.jwt{font-family:var(--mono);font-size:.9rem;word-break:break-all;line-height:1.6}
+.jwt .h{color:var(--no)} .jwt .p{color:var(--accent)} .jwt .g{color:var(--ok)}
+</style>
+</head>
+<body>
+<main class="deck" id="deck">
+
+<!-- 1 -->
+<section class="slide" id="intro">
+  <div class="eyebrow">TaskBoard · ASP.NET Core (.NET 10) · Minimal APIs + MediatR</div>
+  <h1>Auth internals: tokens, policies, revocation, rate limits</h1>
+  <p class="lead">What happens between an HTTP request arriving and a user-scoped EF Core query running, taken straight from the TaskBoard source.</p>
+  <div class="pipe" aria-label="Request pipeline">
+    <span>UseCors</span><b>→</b><span class="on">UseRateLimiter</span><b>→</b><span class="on">UseAuthentication</span><b>→</b><span class="on">UseAuthorization</span><b>→</b><span>Endpoint</span><b>→</b><span>ISender.Send</span><b>→</b><span class="on">Handler (WHERE UserId = sub)</span>
+  </div>
+  <div class="grid">
+    <div class="card"><span class="tag">Identity</span><h3>JWT bearer + rotating refresh cookie</h3></div>
+    <div class="card"><span class="tag">Revocation</span><h3>Security stamp + hashed refresh-token store</h3></div>
+    <div class="card"><span class="tag">Abuse</span><h3>Fixed-window limiter, partitioned per client IP</h3></div>
+  </div>
+  <p class="foot">Source: <code>src/TodoApp.WebApi</code>, <code>src/TodoApp.Application</code>, <code>src/TodoApp.Infrastructure</code>. Docs: <code>docs/architecture/api-reference.md</code>, <code>request-flow.md</code>.</p>
+</section>
+
+<!-- 2 -->
+<section class="slide" id="pipeline" hidden>
+  <div class="eyebrow">Program.cs · middleware order</div>
+  <h2>Order is a security decision</h2>
+<pre class="code">app.UseCors(CorsPolicy);
+app.<span class="k">UseRateLimiter</span>();      <span class="c">// reject floods before any crypto work</span>
+app.<span class="k">UseAuthentication</span>();   <span class="c">// JWT → HttpContext.User</span>
+app.<span class="k">UseAuthorization</span>();    <span class="c">// endpoint policies</span>
+
+app.MapAuthEndpoints();
+app.MapCategoryEndpoints();
+app.MapTodoEndpoints();</pre>
+  <div class="grid">
+    <div class="card"><span class="tag">Limiter first</span><p>A rejected login never reaches PBKDF2 (600k iterations), so floods can't burn CPU.</p></div>
+    <div class="card"><span class="tag">AuthN before AuthZ</span><p>Policies evaluate a principal that authentication has already built.</p></div>
+    <div class="card"><span class="tag">Prod surface</span><p>Swagger is mapped only in Development. Production exposes <code>GET/HEAD /</code> as a health probe.</p></div>
+  </div>
+</section>
+
+<!-- 3 -->
+<section class="slide" id="login" hidden>
+  <div class="eyebrow">POST /api/auth/login</div>
+  <h2>Password verification and token issuance</h2>
+  <div class="two">
+<pre class="code"><span class="c">// Infrastructure/Authentication/PasswordHasher.cs</span>
+SaltSize   = 16;        <span class="c">// 128-bit</span>
+KeySize    = 32;        <span class="c">// 256-bit</span>
+Iterations = <span class="k">600_000</span>;   <span class="c">// PBKDF2-SHA256</span>
+
+var attempt = Rfc2898DeriveBytes.Pbkdf2(
+    password, salt, iterations, SHA256, key.Length);
+return CryptographicOperations
+    .<span class="k">FixedTimeEquals</span>(attempt, key);</pre>
+    <ul class="clean">
+      <li><span class="check">✓</span><span>Stored as <code>iterations.salt.key</code>. Older 100k-iteration hashes still verify and are re-hashed at 600k on next login (<code>NeedsRehash</code>).</span></li>
+      <li><span class="check">✓</span><span>Constant-time compare, so timing doesn't leak how many bytes matched.</span></li>
+      <li><span class="check">✓</span><span>Bad password or unknown user → same <code>UnauthorizedException</code> → 401. No user enumeration.</span></li>
+      <li><span class="check">✓</span><span><code>TokenResponseFactory.Issue</code> mints the access JWT and a refresh token. Only the refresh token's SHA-256 hash is persisted.</span></li>
+    </ul>
+  </div>
+</section>
+
+<!-- 4 -->
+<section class="slide" id="tokens" hidden>
+  <div class="eyebrow">Token model</div>
+  <h2>Two tokens, different jobs, different storage</h2>
+  <div class="tbl"><table>
+    <thead><tr><th></th><th>Access token</th><th>Refresh token</th></tr></thead>
+    <tbody>
+      <tr><td>Format</td><td>HS256 JWT</td><td>32 random bytes (opaque)</td></tr>
+      <tr><td>Lifetime</td><td>15 min (+30 s clock skew)</td><td>7 days, single use</td></tr>
+      <tr><td>Client storage</td><td>SPA memory (module variable)</td><td><code>todo_rt</code> cookie: <code>HttpOnly; Secure; SameSite=None; Path=/api/auth</code></td></tr>
+      <tr><td>Server storage</td><td>None (stateless)</td><td>SHA-256 hash in <code>RefreshTokens</code></td></tr>
+      <tr><td>Sent as</td><td><code>Authorization: Bearer …</code></td><td>Cookie + <code>X-Refresh-CSRF</code> header</td></tr>
+      <tr><td>XSS exposure</td><td>Readable, but 15 min max</td><td>Not readable from JS</td></tr>
+    </tbody>
+  </table></div>
+  <p class="muted"><code>SameSite=None</code> is required because the SPA (<code>*.azurestaticapps.net</code>) and API (<code>*.azurewebsites.net</code>) are different sites. CSRF is covered by the custom header: a cross-site form can't add one without a CORS preflight, and CORS allows only the SPA origin.</p>
+</section>
+
+<!-- 5 -->
+<section class="slide" id="jwt" hidden>
+  <div class="eyebrow">JWT anatomy</div>
+  <h2>header.payload.signature</h2>
+  <p class="jwt"><span class="h">eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9</span>.<span class="p">eyJzdWIiOiI0MiIsImVtYWlsIjoiYnVydEBleGFtcGxlLmNvbSIsInJvbGUiOiJVc2VyIiwic3N0YW1wIjoiYTFiMmMzZDQiLCJpc3MiOiJUb2RvQXBwIiwiYXVkIjoiVG9kb0FwcENsaWVudCIsImV4cCI6MTc5MDQ0MzcxN30</span>.<span class="g">3Kx9…qW0</span></p>
+  <div class="two">
+<pre class="code">{
+  <span class="s">"sub"</span>:    "42",
+  <span class="s">"email"</span>:  "burt@example.com",
+  <span class="s">"role"</span>:   "User",
+  <span class="s">"sstamp"</span>: "a1b2c3d4",   <span class="c">// security stamp</span>
+  <span class="s">"iss"</span>:    "TodoApp",
+  <span class="s">"aud"</span>:    "TodoAppClient",
+  <span class="s">"exp"</span>:    1790443717
+}</pre>
+    <ul class="clean">
+      <li><span class="check">✓</span><span>Payload is base64url, <b>not encrypted</b>. No secrets go in claims.</span></li>
+      <li><span class="check">✓</span><span>Signature = HMAC-SHA256(header.payload, <code>Jwt:Key</code>). Any edit breaks it.</span></li>
+      <li><span class="check">✓</span><span>Startup fails fast unless <code>Jwt:Key</code> is ≥ 32 bytes. It lives in user-secrets locally and Key Vault in Azure.</span></li>
+      <li><span class="check">✓</span><span><code>MapInboundClaims = false</code> keeps raw names (<code>sub</code>, <code>role</code>, <code>sstamp</code>).</span></li>
+    </ul>
+  </div>
+</section>
+
+<!-- 6 -->
+<section class="slide" id="validate" hidden>
+  <div class="eyebrow">Authentication/AuthenticationSetup.cs</div>
+  <h2>Validation: four framework checks, then one of ours</h2>
+  <div class="two">
+<pre class="code">TokenValidationParameters = new()
+{
+  ValidateIssuer           = true,
+  ValidateAudience         = true,
+  ValidateIssuerSigningKey = true,
+  ValidateLifetime         = true,
+  ClockSkew     = TimeSpan.FromSeconds(30),
+  NameClaimType = "sub",
+  RoleClaimType = "role"
+};</pre>
+<pre class="code"><span class="k">OnTokenValidated</span> = async ctx =>
+{
+  var sub   = ctx.Principal.FindFirstValue("sub");
+  var stamp = ctx.Principal.FindFirstValue("sstamp");
+
+  var user = await db.Users.AsNoTracking()
+      .FirstOrDefaultAsync(u => u.Id == userId);
+
+  if (user is null || !user.IsActive
+      || user.SecurityStamp != stamp)
+      ctx.<span class="k">Fail</span>("This token has been revoked.");
+};</pre>
+  </div>
+  <p class="muted">Any failure means <code>HttpContext.User</code> stays unauthenticated, and a protected endpoint returns <b>401</b> before the handler runs.</p>
+</section>
+
+<!-- 7 -->
+<section class="slide" id="authz" hidden>
+  <div class="eyebrow">Authorization · three layers</div>
+  <h2>Endpoint, row, role</h2>
+  <div class="two">
+<pre class="code"><span class="c">// Endpoints/TodoEndpoints.cs</span>
+var group = app.MapGroup("/api/todos")
+    .<span class="k">RequireAuthorization</span>();   <span class="c">// default policy</span>
+
+<span class="c">// GetTodoByIdQueryHandler.cs</span>
+var entity = await _context.TodoItems
+    .AsNoTracking()
+    .FirstOrDefaultAsync(t => t.Id == request.Id
+        && <span class="k">t.UserId == userId</span>, ct)
+    ?? throw new <span class="k">NotFoundException</span>(...);</pre>
+    <ul class="clean">
+      <li><span class="check">✓</span><span><b>Endpoint.</b> <code>RequireAuthorization()</code> with no policy name applies the default policy, <code>RequireAuthenticatedUser()</code>. It covers the todos and categories groups, plus <code>/logout</code>, <code>/revoke-all</code> and <code>/me</code>.</span></li>
+      <li><span class="check">✓</span><span><b>Row.</b> Every handler filters by <code>sub</code>. A foreign id returns <b>404, not 403</b>, so existence isn't disclosed.</span></li>
+      <li><span class="check">✓</span><span><b>Role.</b> <code>User</code> or <code>Admin</code> via the <code>role</code> claim. Checked in the handler: only an Admin may revoke another user's sessions, otherwise <code>ForbiddenAccessException</code> → 403.</span></li>
+      <li><span class="check">✓</span><span>Anonymous: <code>/register</code>, <code>/login</code>, <code>/google</code>, <code>/refresh</code>.</span></li>
+    </ul>
+  </div>
+</section>
+
+<!-- 8 -->
+<section class="slide" id="refresh" hidden>
+  <div class="eyebrow">POST /api/auth/refresh · RefreshTokenCommandHandler</div>
+  <h2>Rotation with reuse detection</h2>
+<pre class="code">var token = await _db.RefreshTokens.FirstOrDefaultAsync(t => t.TokenHash == <span class="k">Hash</span>(raw));
+if (token is null || user is null || !user.IsActive) throw Unauthorized;
+
+if (token.IsRevoked)                                    <span class="c">// already rotated → replayed → assume theft</span>
+{
+    user.<span class="k">RotateSecurityStamp</span>(now);                     <span class="c">// kill every access token</span>
+    await <span class="k">RevokeAllActiveTokensAsync</span>(user.Id, "Refresh token reuse detected");
+    throw Unauthorized;
+}
+if (token.IsExpired(now)) { token.Revoke("Expired"); throw Unauthorized; }
+
+token.Revoke("Rotated", now, newRefresh.TokenHash);     <span class="c">// chain old → new</span>
+_db.RefreshTokens.Add(new RefreshToken(user.Id, newRefresh.TokenHash, ...));</pre>
+  <div class="card hl"><h3>Client consequence: single-flight refresh</h3><p>When the access token expires, several calls 401 at once. If each one refreshed independently, the second would present an already-rotated token, trip reuse detection and sign the user out everywhere. <code>apiClient.js</code> shares one in-flight refresh promise.</p></div>
+</section>
+
+<!-- 9 -->
+<section class="slide" id="revoke" hidden>
+  <div class="eyebrow">Revocation</div>
+  <h2>Making stateless tokens revocable</h2>
+  <div class="two">
+    <div class="card hl"><span class="tag">Security stamp</span><h3>Kills access tokens instantly</h3><p>Embedded as <code>sstamp</code> and compared on every request in <code>OnTokenValidated</code>. <code>RotateSecurityStamp()</code> invalidates all outstanding JWTs for that user, on every device.</p></div>
+    <div class="card hl"><span class="tag">Refresh-token store</span><h3>Stops new access tokens</h3><p>Hashed rows, individually revocable, with a reason and a replaced-by chain. Reuse of a revoked token triggers full revocation.</p></div>
+  </div>
+<pre class="code"><span class="c">// POST /api/auth/revoke-all · RevokeAllTokensCommandHandler</span>
+if (targetUserId != currentUserId &amp;&amp; !_currentUser.IsInRole("Admin")) throw new ForbiddenAccessException();
+user.<span class="k">RotateSecurityStamp</span>(now);
+foreach (var t in activeTokens) t.<span class="k">Revoke</span>("All sessions revoked", now);</pre>
+  <p class="muted"><b>Trade-off:</b> one <code>AsNoTracking</code> primary-key lookup per authenticated request. That gives up pure statelessness in exchange for instant revocation and deactivation (<code>IsActive = false</code>).</p>
+</section>
+
+<!-- 10 -->
+<section class="slide" id="ratelimit" hidden>
+  <div class="eyebrow">Rate limiting · AddRateLimiter</div>
+  <h2>Fixed windows, partitioned per client IP</h2>
+  <div class="tbl"><table>
+    <thead><tr><th>Policy</th><th>Scope</th><th>Prod</th><th>Dev</th></tr></thead>
+    <tbody>
+      <tr><td><code>auth</code></td><td><code>.RequireRateLimiting(Auth)</code> on <code>/api/auth</code></td><td>10 / 60 s</td><td>100 / 60 s</td></tr>
+      <tr><td>global</td><td><code>options.GlobalLimiter</code>, every request</td><td>200 / 60 s</td><td>200 / 60 s</td></tr>
+    </tbody>
+  </table></div>
+  <div class="two">
+<pre class="code"><span class="c">// ClientAddress.Resolve: the partition key</span>
+if (trustForwardedFor)
+    return <span class="k">LastForwardedHop</span>(X-Forwarded-For);
+return RemoteIpAddress ?? "unknown";
+
+<span class="c">// Normalize: parse, don't slice</span>
+IPAddress.TryParse(s, out a)   → a
+IPEndPoint.TryParse(s, out ep) → ep.Address
+else                            → discard</pre>
+    <ul class="clean">
+      <li><span class="check">✓</span><span><code>QueueLimit = 0</code>: reject immediately, don't queue.</span></li>
+      <li><span class="check">✓</span><span><code>OnRejected</code> returns 429 with Problem Details and a <code>Retry-After</code> taken from the limiter that actually rejected the request.</span></li>
+      <li><span class="check">✓</span><span>Only the <b>last</b> XFF hop is trusted, because App Service appends it. Earlier hops are client-controlled.</span></li>
+      <li><span class="check">✓</span><span><code>RateLimiting:TrustForwardedFor=true</code> must be set in Azure. Both provisioning scripts set it.</span></li>
+    </ul>
+  </div>
+</section>
+
+<!-- 11 -->
+<section class="slide" id="lessons" hidden>
+  <div class="eyebrow">docs/lessons.md · bugs that were invisible</div>
+  <h2>Three findings worth knowing</h2>
+  <div class="grid">
+    <div class="card no"><span class="tag">IPv6 exempt from limiting</span><p>Hand-sliced port stripping turned <code>[2001:db8::1]:51514</code> into a key that included the ephemeral port, so every connection got a new partition. The fix moved the logic into <code>ClientAddress</code>, parsed it properly and added 14 tests.</p></div>
+    <div class="card no"><span class="tag">Whole site in one partition</span><p><code>TrustForwardedFor</code> shipped <code>false</code> and wasn't provisioned. Behind App Service, everyone shared 10 logins a minute.</p></div>
+    <div class="card no"><span class="tag">Sign-out everywhere</span><p>Parallel 401s each refreshed, and the replay tripped reuse detection. Fixed with single-flight refresh on the client.</p></div>
+  </div>
+  <div class="card hl"><h3>Takeaway</h3><p>A rate limiter has no failure signal. Working, wide open and throttling everyone all look the same from outside, so the partition key has to be reachable by tests.</p></div>
+</section>
+
+<!-- 12 -->
+<section class="slide" id="summary" hidden>
+  <div class="eyebrow">Reference</div>
+  <h2>Status codes and where to look</h2>
+  <div class="tbl"><table>
+    <thead><tr><th>Code</th><th>Meaning here</th><th>Raised by</th></tr></thead>
+    <tbody>
+      <tr><td>401</td><td>No token, bad signature or claims, expired, revoked stamp, inactive user</td><td>JwtBearer / <code>OnTokenValidated</code> / <code>UnauthorizedException</code></td></tr>
+      <tr><td>403</td><td>Authenticated, but not allowed (non-admin revoking others)</td><td><code>ForbiddenAccessException</code></td></tr>
+      <tr><td>404</td><td>Missing <i>or someone else's</i> resource</td><td>User-scoped query + <code>NotFoundException</code></td></tr>
+      <tr><td>429</td><td>Rate limit hit, with <code>Retry-After</code></td><td><code>UseRateLimiter</code> / <code>OnRejected</code></td></tr>
+    </tbody>
+  </table></div>
+  <div class="tbl"><table>
+    <thead><tr><th>Concern</th><th>File</th></tr></thead>
+    <tbody>
+      <tr><td>JWT validation + stamp check</td><td><code>WebApi/Authentication/AuthenticationSetup.cs</code></td></tr>
+      <tr><td>Refresh cookie + CSRF header</td><td><code>WebApi/Authentication/RefreshTokenCookie.cs</code></td></tr>
+      <tr><td>Rotation / reuse detection</td><td><code>Application/Auth/Commands/RefreshToken/RefreshTokenCommandHandler.cs</code></td></tr>
+      <tr><td>Revoke all</td><td><code>Application/Auth/Commands/RevokeAllTokens/RevokeAllTokensCommandHandler.cs</code></td></tr>
+      <tr><td>Rate limiter + partition key</td><td><code>WebApi/Program.cs</code>, <code>WebApi/ClientAddress.cs</code></td></tr>
+      <tr><td>Password hashing</td><td><code>Infrastructure/Authentication/PasswordHasher.cs</code></td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+</main>
+
+
+<nav class="nav" aria-label="Slide navigation">
+  <button id="prev" type="button" aria-label="Previous slide">← Back</button>
+  <div class="dots" id="dots"></div>
+  <span class="count" id="count"></span>
+  <button id="next" type="button" aria-label="Next slide">Next →</button>
+</nav>
+
+<script>
+(function(){
+  const slides=[...document.querySelectorAll('.slide')];
+  const dots=document.getElementById('dots');
+  let i=0;
+  slides.forEach((s,n)=>{const b=document.createElement('button');b.type='button';b.setAttribute('aria-label','Go to slide '+(n+1));b.onclick=()=>go(n);dots.appendChild(b);});
+  function go(n){
+    i=Math.max(0,Math.min(slides.length-1,n));
+    slides.forEach((s,k)=>s.hidden=k!==i);
+    [...dots.children].forEach((d,k)=>d.setAttribute('aria-current',k===i));
+    document.getElementById('count').textContent=(i+1)+' / '+slides.length;
+    document.getElementById('prev').disabled=i===0;
+    document.getElementById('next').disabled=i===slides.length-1;
+    try{history.replaceState(null,'','#'+slides[i].id)}catch(e){}
+    window.scrollTo({top:0});
+  }
+  document.getElementById('prev').onclick=()=>go(i-1);
+  document.getElementById('next').onclick=()=>go(i+1);
+  document.addEventListener('keydown',e=>{
+    if(e.key==='ArrowRight'||e.key==='PageDown'||e.key===' '){e.preventDefault();go(i+1)}
+    if(e.key==='ArrowLeft'||e.key==='PageUp'){e.preventDefault();go(i-1)}
+    if(e.key==='Home')go(0); if(e.key==='End')go(slides.length-1);
+  });
+  const start=slides.findIndex(s=>'#'+s.id===location.hash);
+  go(start>=0?start:0);
+})();
+</script>
+</body>
+</html>
