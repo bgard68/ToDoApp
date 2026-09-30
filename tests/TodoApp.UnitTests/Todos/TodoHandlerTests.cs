@@ -410,6 +410,28 @@ public class TodoHandlerTests
         results.Select(t => t.Title).Should().BeEquivalentTo(["Buy milk", "Errand"]);
     }
 
+    [Fact]
+    public async Task GetTodos_SearchIsCaseInsensitive()
+    {
+        using var db = new TestDatabase();
+        var user = SeedUser(db);
+        SeedTodo(db, user.Id, "Email Sarah about the proposal");
+        SeedTodo(db, user.Id, "Pay AWS invoice");
+
+        var handler = new GetTodosQueryHandler(
+            db.NewContext(), new FakeCurrentUserService { UserId = user.Id });
+
+        // Lowercase query finds the capitalised name (the case a user actually types).
+        var lower = await handler.Handle(
+            new GetTodosQuery { Search = "sarah" }, CancellationToken.None);
+        lower.Select(t => t.Title).Should().BeEquivalentTo(["Email Sarah about the proposal"]);
+
+        // And an upper / auto-capitalised query still finds a mixed-case acronym.
+        var upper = await handler.Handle(
+            new GetTodosQuery { Search = "AWS" }, CancellationToken.None);
+        upper.Select(t => t.Title).Should().BeEquivalentTo(["Pay AWS invoice"]);
+    }
+
     [Theory]
     [InlineData("")]
     [InlineData("   ")]
