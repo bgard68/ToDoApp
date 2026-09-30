@@ -159,8 +159,10 @@ with the **[Azure guide](docs/deployment/azure.md)**.
 - **[Onion architecture diagram](docs/architecture/onion-architecture.svg)** — the layered dependency diagram used above.
 - **[Architecture & practices assessment](docs/architecture/assessment.md)** — an evidence-based review of how well the project adheres to Clean Architecture, SOLID, design patterns, and CI/CD best practices.
 
-**Presentations** — [`docs/presentations/`](docs/presentations/)
+**Security explained** — [`docs/security/`](docs/security/) · [`docs/presentations/`](docs/presentations/)
 
+- **[How TaskBoard keeps your tasks safe](docs/security/for-everyone.md)** — *for non-technical readers.* Sign-in, access, revocation and rate limiting in plain language, using everyday examples, with a glossary mapping each one to its technical term.
+- **[TaskBoard security for developers](docs/security/for-developers.md)** — *for developers.* The middleware pipeline, password hashing, token model, JWT validation and the security-stamp check, the three authorization layers, refresh rotation with reuse detection, revocation, rate limiting and the partition key, with code and a file map.
 - **[Security walkthrough](docs/presentations/security-walkthrough.html)** — *for non-technical viewers.* A 10-slide slideshow explaining sign-in, access, revocation and rate limiting through everyday examples (hotel key cards, a license hologram, changing your locks, a phone passcode lockout).
 - **[Auth internals](docs/presentations/auth-internals.html)** — *for developers.* A 12-slide slideshow on the JWT/refresh-token model, validation and the security-stamp check, authorization layers, rotation with reuse detection, revocation, and the rate limiter — with the real code. See the **[presentations guide](docs/presentations/README.md)** for how to view and present them.
 
