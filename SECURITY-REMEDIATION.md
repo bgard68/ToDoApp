@@ -216,7 +216,7 @@ CI, which already used `npm ci`. Two build systems, same commit, potentially dif
 - `server_tokens off` so the exact nginx version isn't advertised.
 
 **Verification moved to CI.** The Docker engine wasn't running on the machine this work was done
-on, so rather than leave the image unproven, `.github/workflows/container-build.yml` now builds it
+on, so rather than leave the image unproven, the container-build workflow now builds it
 on every relevant change. That workflow does more than a local build would have:
 
 - builds the image (which also proves `npm ci` succeeds against the committed lock file),
