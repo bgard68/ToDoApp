@@ -144,7 +144,12 @@ troubleshooting order, because the first check would have saved most of the time
 
 ### Check the base branch before any individual PR
 
-`Build API image & scan` is a required check, and it had gone red on `main` on a scheduled scan. A
+> **Historical.** The container build and its scan have since been removed — the Dockerfile was
+> never on the deployment path (App Service takes a `dotnet publish` zip), and the base image
+> repeatedly lagged upstream CVE fixes, blocking unrelated PRs. The lesson below still applies to
+> any required check.
+
+`Build API image & scan` was a required check, and it had gone red on `main` on a scheduled scan. A
 required check failing on the base branch blocks **every** open pull request behind it. Nineteen of
 the twenty-two were queued behind a failure none of them caused and none could clear.
 

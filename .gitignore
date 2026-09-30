@@ -45,10 +45,10 @@ dist-ssr/
 .vite/
 *.local
 
-# Env files - ignore ALL real/local env files; keep only the blank .env.example template
+# Env files - ignore ALL real/local env files. (.env.example went with docker-compose;
+# local config comes from user-secrets, and production from App Service settings.)
 .env
 .env.*
-!.env.example
 
 # Logs
 *.log

@@ -50,8 +50,8 @@ is a React (Vite) single-page app.
   `WebApplicationFactory` integration tests over the full HTTP pipeline.
 - **Secrets done right** — nothing sensitive in source; the signing key comes from
   user-secrets (dev) or environment/Key Vault (prod), and the app fails fast without it.
-- **Deployable** — Docker Compose, Linux + nginx, and Azure (App Service + Static Web Apps)
-  guides, with runnable Dockerfiles and compose files.
+- **Deployable** — Linux + nginx and Azure (App Service + Static Web Apps) guides; the API
+  ships as a `dotnet publish` package, deployed straight to App Service by the pipeline.
 
 **Tech stack (at a glance):**
 
@@ -125,8 +125,8 @@ playbook), see the **[local development guide](docs/development/local-dev.md)**.
 in the **[testing guide](docs/development/testing.md)**.
 
 > **Deploying?** See the **[deployment overview](docs/deployment/overview.md)** for build/compile
-> and deploy anywhere (Docker Compose, Linux + nginx, Azure), plus the included `Dockerfile.api`,
-> the frontend's `Dockerfile` (on the `frontend` branch), `docker-compose.yml`, and `deploy/` samples. For a start-to-finish
+> and deploy anywhere (Linux + nginx, Azure), plus the frontend's `Dockerfile` (on the
+> `frontend` branch) and `deploy/` samples. For a start-to-finish
 > **Azure** deploy (App Service + Static Web Apps, Postgres on Neon or passwordless Azure SQL,
 > Google sign-in, CORS, Key Vault), see the **[Azure guide](docs/deployment/azure.md)**. Hit a wall getting the API or Key
 > Vault live? The **[troubleshooting log](docs/deployment/troubleshooting-log.md)** is a
@@ -141,7 +141,7 @@ with the **[Azure guide](docs/deployment/azure.md)**.
 
 - **[Azure guide](docs/deployment/azure.md)** — **start-to-finish Azure deploy**: one ordered pass from an empty subscription to a working deployment (App Service, Postgres on Neon, Static Web Apps, Google sign-in, CORS, Key Vault), plus the env-var reference and verification checklist.
 - **[Infrastructure scripts](infra/README.md)** — provision / export / re-import the Azure stack as code (Bash + PowerShell): stand up the environment, capture an existing one to ARM/Bicep + app settings + Key Vault secret *names*, and rebuild a clone in one command. The IaC counterpart to the Azure guide.
-- **[Deployment overview](docs/deployment/overview.md)** — build, compile, and deploy anywhere (Docker Compose, Linux + nginx, Azure), with the included Dockerfiles and compose samples, plus production hardening.
+- **[Deployment overview](docs/deployment/overview.md)** — build, compile, and deploy anywhere (Linux + nginx, Azure), with the `dotnet publish` package the pipeline ships, plus production hardening.
 - **[Google sign-in](docs/deployment/google-signin.md)** — end-to-end Google sign-in setup: Cloud project, consent screen, OAuth client, wiring the client ID into the frontend and backend, and troubleshooting.
 - **[Key Vault](docs/deployment/key-vault.md)** — what this project stores in Azure Key Vault (the JWT signing key and, on Neon, the database connection string), the two ways to wire it in, RBAC vs. access-policy, and how it stays optional locally.
 - **[Troubleshooting log](docs/deployment/troubleshooting-log.md)** — a chronological post-mortem of getting the API + Key Vault working on Azure: every symptom, how the logs were read (Kudu VFS API, `docker.log`), the root-cause chain, the clean rebuild, and every command used.
