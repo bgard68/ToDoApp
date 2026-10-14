@@ -24,8 +24,8 @@ shape these providers really emit, and every "trap" below was a real defect with
 
 ## 1. The two stacks and three databases
 
-The branches are maintained in parallel and are **not** merged into each other. They deliberately
-support different database sets:
+The branches are **not** merged into each other, and they deliberately support different database
+sets:
 
 | | `main` | `dapper` |
 |---|---|---|
@@ -37,6 +37,14 @@ support different database sets:
 
 Provider selection is configuration-only — `Database:Provider` plus a connection string — so the
 same build runs on any supported backend with no code change.
+
+> **Branch status: `dapper` is frozen, `main` is maintained.** The `dapper` branch is kept as a
+> working comparison, not as a second product. It forked before `main` gained its PostgreSQL
+> provider, so it speaks SQLite and Azure SQL only — there is no Neon path on it, and it does not
+> deploy. Dependabot no longer tracks it: maintaining two dependency streams and two lock-file
+> histories for one application cost more each week than the branch earns, and the comparison it
+> exists for does not go stale. Everything below describes both branches as they stand; `main`
+> moves on from here.
 
 > **Why this matters for correctness:** local development and the entire test suite run on
 > **SQLite**, while production runs on **PostgreSQL** or **Azure SQL**. Any behaviour that differs
@@ -308,7 +316,7 @@ must be appended, never inserted.
 
 ## 5. Choosing between EF Core and Dapper
 
-Maintaining both branches makes the trade-off concrete rather than theoretical:
+Having built both makes the trade-off concrete rather than theoretical:
 
 | | EF Core | Dapper |
 |---|---|---|

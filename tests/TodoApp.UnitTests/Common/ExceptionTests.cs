@@ -50,6 +50,25 @@ public class ExceptionTests
     }
 
     [Fact]
+    public void Conflict_KeepsTheUnderlyingDatabaseError()
+    {
+        var cause = new UniqueConstraintViolationException(new InvalidOperationException("duplicate key"));
+
+        new ConflictException("Already exists.", cause).InnerException.Should().BeSameAs(cause);
+    }
+
+    [Fact]
+    public void UniqueConstraintViolation_KeepsTheProviderError()
+    {
+        var provider = new InvalidOperationException("SQLITE_CONSTRAINT_UNIQUE");
+
+        var exception = new UniqueConstraintViolationException(provider);
+
+        exception.Message.Should().NotBeNullOrWhiteSpace();
+        exception.InnerException.Should().BeSameAs(provider);
+    }
+
+    [Fact]
     public void ConcurrencyConflict_CarriesTheCurrentServerState()
     {
         var current = new { Id = 1 };

@@ -109,6 +109,13 @@ cd ../todoapp-frontend && npm install && npm run dev
 > intentionally not part of the `main`/`dapper` backend branches. Use `git checkout frontend`
 > or the `git worktree` command above to work on it.
 
+> **The `dapper` branch is frozen.** It holds the same application with EF Core replaced by
+> Dapper and hand-written SQL — no persistence package in the Application layer at all — and is
+> kept as a working comparison, written up in
+> **[Data access & SQL dialects](docs/development/data-access-and-sql-dialects.md)**. It forked
+> before `main` gained its PostgreSQL provider, so it does not deploy, and Dependabot no longer
+> tracks it. `main` is the maintained backend.
+
 First backend run creates a SQLite database (`todoapp.db`) and seeds a demo user
 (`demo@todoapp.local` / `Password123!`). The JWT signing key **must** be supplied
 externally — the app fails fast without it. For the full walkthrough (VS 2026, the

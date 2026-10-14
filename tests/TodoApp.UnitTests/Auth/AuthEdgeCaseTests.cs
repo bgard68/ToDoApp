@@ -236,9 +236,11 @@ public class AuthEdgeCaseTests
         using var db = new TestDatabase();
 
         // The pre-check passes, then a concurrent request takes the email before this one saves.
-        // A pending row the database will reject reproduces the same DbUpdateException.
+        // A pending row carrying the same email reproduces that race exactly: the pre-check is a
+        // database query and cannot see it, then both rows insert and the unique index on Email
+        // rejects the save.
         var context = db.NewContext();
-        context.ExternalLogins.Add(new ExternalLogin(9999, "Google", "sub-poison", _clock.UtcNow));
+        context.Users.Add(new User("racer@example.com", "stand-in-hash", _clock.UtcNow));
 
         var handler = new RegisterCommandHandler(
             context, new PasswordHasher(), _jwt, _clock, new FakeBreachedPasswordChecker());
@@ -248,6 +250,28 @@ public class AuthEdgeCaseTests
             CancellationToken.None);
 
         await act.Should().ThrowAsync<ConflictException>();
+    }
+
+    [Fact]
+    public async Task Register_WhenTheSaveFailsForAnotherReason_DoesNotReportAConflict()
+    {
+        using var db = new TestDatabase();
+
+        // A pending external login pointing at a user that does not exist: the save fails on the
+        // foreign key, which is a fault rather than a duplicate email. This test is the reason
+        // the handler no longer catches DbUpdateException — it used to report this to the caller
+        // as 409 "An account with this email already exists", with nothing logged.
+        var context = db.NewContext();
+        context.ExternalLogins.Add(new ExternalLogin(9999, "Google", "sub-poison", _clock.UtcNow));
+
+        var handler = new RegisterCommandHandler(
+            context, new PasswordHasher(), _jwt, _clock, new FakeBreachedPasswordChecker());
+
+        var act = () => handler.Handle(
+            new RegisterCommand { Email = "unlucky@example.com", Password = "Password1" },
+            CancellationToken.None);
+
+        await act.Should().ThrowAsync<DbUpdateException>();
     }
 
     // ---- Revoke all ----------------------------------------------------------------
@@ -386,11 +410,13 @@ public class AuthEdgeCaseTests
         using var db = new TestDatabase();
 
         // Stand in for the concurrent first-time sign-in that grabs the same (Provider,
-        // ProviderKey) or Email a moment before this one saves: a pending row the database
-        // will reject, so the handler's SaveChanges raises DbUpdateException exactly as the
-        // unique-index violation would.
+        // ProviderKey) a moment before this one saves: a pending row carrying the subject this
+        // token asserts, so the handler's lookup finds nothing in the database and the unique
+        // index on (Provider, ProviderKey) rejects its own insert.
+        var owner = SeedUser(db, "owner@example.com");
+
         var context = db.NewContext();
-        context.ExternalLogins.Add(new ExternalLogin(9999, "Google", "sub-poison", _clock.UtcNow));
+        context.ExternalLogins.Add(new ExternalLogin(owner.Id, "Google", "sub-race", _clock.UtcNow));
 
         var handler = new GoogleSignInCommandHandler(
             context,

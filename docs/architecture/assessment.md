@@ -113,7 +113,12 @@ This is the single deliberate compromise in the architecture, so it's worth spel
    references the EF Core package to compile.
 3. **A handler catches an EF exception.** `ChangeTodoStatusCommandHandler` catches
    `DbUpdateConcurrencyException` — an EF type — inside application logic. This is the least tidy of
-   the three.
+   the three. The register / sign-in / category handlers used to catch its base type,
+   `DbUpdateException`, which was worse than untidy: it is the base type for *every* save failure,
+   so a dropped connection or a foreign-key violation came back to the caller as "already exists".
+   Those now catch the layer's own `UniqueConstraintViolationException`, raised by
+   `ApplicationDbContext` from the provider's error code — one EF type fewer in `Application`, and
+   the only remaining one is genuinely about a conflict rather than about EF.
 
 **Why it's a caveat.** Clean Architecture says inner layers depend only on abstractions they own,
 expressed in domain terms; the ORM is an infrastructure detail that should be swappable without
@@ -147,6 +152,16 @@ search, paging run in the DB), forcing either a method-per-query explosion or th
 the **Specification** pattern; and the payoff — swapping ORMs — is largely theoretical and rarely
 survives the swap intact anyway.
 
+**What the swap actually cost, measured.** This one did not stay theoretical: the `dapper` branch
+is the same application with EF Core removed outright. `TodoApp.Application.csproj` there carries
+only MediatR, FluentValidation and the Domain reference — no persistence package at all — behind
+six repository interfaces plus `IUnitOfWork`. So the abstraction is clearly achievable. The price
+was roughly twenty-four new Infrastructure files (connection factory, Dapper type handlers, five
+repositories) and hand-written idempotent DDL **per dialect**, and then the second stack had to be
+kept level with the first: it forked before `main`'s PostgreSQL provider landed and cannot deploy,
+which is why it is now frozen as a comparison rather than maintained as an alternative. The
+coupling is a real caveat; the cure is a second product.
+
 **Future risk as the project grows** — the coupling is cheap *now* and gets marginally more expensive
 with scale, in roughly this order:
 
@@ -165,7 +180,10 @@ with scale, in roughly this order:
 correct engineering call, and chasing the abstraction would add indirection users never feel. The one
 cheap improvement worth making is closing leak #3: move the `DbUpdateConcurrencyException` handling
 into an Infrastructure `SaveChangesAsync` that rethrows the domain `ConcurrencyConflictException` (~15
-lines, removes an EF type from business logic, no downside). Revisit full repositories +
+lines, removes an EF type from business logic, no downside). That seam now exists — the
+`SaveChangesAsync` override already translates uniqueness failures via `UniqueConstraintDetector` —
+so this is reusing a mechanism rather than building one, though the concurrency case is the harder
+half: the handler also re-reads the current row to put it in the 409 body. Revisit full repositories +
 specifications only if/when a real second read model or reporting workload appears.
 
 ---
@@ -240,7 +258,7 @@ once dependencies were installed locally.
 - [ ] Enable Dependabot and/or CodeQL scanning.
 - [ ] Add `concurrency: { group: ..., cancel-in-progress: true }` to both workflows.
 - [ ] Remove the `Debug: repo files & lockfiles` step.
-- [ ] (Cheap, recommended) Move the `DbUpdateConcurrencyException` handling out of `ChangeTodoStatusCommandHandler` into an Infrastructure `SaveChangesAsync` that rethrows the domain `ConcurrencyConflictException` — removes the one EF type that leaks into application logic (~15 lines).
+- [ ] (Cheap, recommended) Move the `DbUpdateConcurrencyException` handling out of `ChangeTodoStatusCommandHandler` into an Infrastructure `SaveChangesAsync` that rethrows the domain `ConcurrencyConflictException` — removes the one EF type that leaks into application logic (~15 lines). The `SaveChangesAsync` override that translates uniqueness failures is the seam to extend; the catch also has to supply the current row for the 409 body.
 - [ ] (Optional, purist) Introduce repository interfaces + the Specification pattern if you want to fully decouple `Application` from EF Core — see the EF coupling trade-off section for when this pays off.
 
 ## Related operational follow-ups (not code)

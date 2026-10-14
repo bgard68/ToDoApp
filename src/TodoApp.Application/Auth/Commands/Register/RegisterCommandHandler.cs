@@ -60,14 +60,15 @@ public class RegisterCommandHandler : IRequestHandler<RegisterCommand, AuthRespo
         // Persist first so the user has an Id for the refresh token's foreign key.
         // The pre-check above handles the common case; this catch covers the race where a
         // concurrent request inserts the same email between the check and here (the unique
-        // index on Email then rejects this insert).
+        // index on Email then rejects this insert). Only that rejection becomes a 409 — any
+        // other save failure is a fault, not a conflict, and propagates as a 500.
         try
         {
             await _db.SaveChangesAsync(cancellationToken);
         }
-        catch (DbUpdateException)
+        catch (UniqueConstraintViolationException exception)
         {
-            throw new ConflictException("An account with this email already exists.");
+            throw new ConflictException("An account with this email already exists.", exception);
         }
 
         // Give the new user a starter set of categories to rename/recolor/delete.

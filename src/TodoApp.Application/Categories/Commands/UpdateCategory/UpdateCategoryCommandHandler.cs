@@ -37,9 +37,9 @@ public class UpdateCategoryCommandHandler : IRequestHandler<UpdateCategoryComman
         {
             await _db.SaveChangesAsync(cancellationToken);
         }
-        catch (DbUpdateException)
+        catch (UniqueConstraintViolationException exception)
         {
-            throw new ConflictException("A category with this name already exists.");
+            throw new ConflictException("A category with this name already exists.", exception);
         }
 
         return CategoryDto.FromEntity(category);

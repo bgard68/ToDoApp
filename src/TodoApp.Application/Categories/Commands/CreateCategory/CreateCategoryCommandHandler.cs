@@ -1,5 +1,4 @@
 using MediatR;
-using Microsoft.EntityFrameworkCore;
 using TodoApp.Application.Categories.Dtos;
 using TodoApp.Application.Common.Exceptions;
 using TodoApp.Application.Common.Interfaces;
@@ -34,10 +33,11 @@ public class CreateCategoryCommandHandler : IRequestHandler<CreateCategoryComman
         {
             await _db.SaveChangesAsync(cancellationToken);
         }
-        catch (DbUpdateException)
+        catch (UniqueConstraintViolationException exception)
         {
-            // Unique (UserId, Name) index violation.
-            throw new ConflictException("A category with this name already exists.");
+            // Unique (UserId, Name) index violation — and only that. Any other save failure
+            // propagates, rather than being reported to the caller as a duplicate name.
+            throw new ConflictException("A category with this name already exists.", exception);
         }
 
         return CategoryDto.FromEntity(category);

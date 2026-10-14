@@ -268,8 +268,12 @@ Two kinds of write conflict are handled explicitly, both returning **409**:
   API responds `409` with the current server state under a `current` field. The client
   reloads and asks the user to re-apply. Omitting the token falls back to last-writer-wins.
 - **Unique-constraint races.** Registration and Google sign-in pre-check for an existing
-  email, but a concurrent duplicate insert is still caught (`DbUpdateException` on the
-  unique index) and translated to `409` instead of a 500.
+  email, but a concurrent duplicate insert is still caught and translated to `409` instead
+  of a 500. The classification happens in one place — `UniqueConstraintDetector` reads the
+  provider's error code (SQLite, SQL Server, PostgreSQL) and `ApplicationDbContext` re-throws
+  it as `UniqueConstraintViolationException` — so a save that failed for *any other* reason
+  (dropped connection, foreign-key violation) stays a `500` with its cause intact, rather
+  than being reported to the caller as a duplicate.
 
 ## Security notes & production hardening
 
