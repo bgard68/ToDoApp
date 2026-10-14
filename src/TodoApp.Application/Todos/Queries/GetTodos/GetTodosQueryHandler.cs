@@ -20,7 +20,7 @@ public class GetTodosQueryHandler : IRequestHandler<GetTodosQuery, IReadOnlyList
 
     public async Task<IReadOnlyList<TodoItemDto>> Handle(GetTodosQuery request, CancellationToken cancellationToken)
     {
-        var userId = _currentUser.UserId ?? throw new UnauthorizedException();
+        var userId = _currentUser.RequireUserId();
 
         var query = _context.TodoItems
             .AsNoTracking()

@@ -25,7 +25,7 @@ public class UpdateCategoryCommandHandler : IRequestHandler<UpdateCategoryComman
 
     public async Task<CategoryDto> Handle(UpdateCategoryCommand request, CancellationToken cancellationToken)
     {
-        var userId = _currentUser.UserId ?? throw new UnauthorizedException();
+        var userId = _currentUser.RequireUserId();
 
         var category = await _db.Categories
             .FirstOrDefaultAsync(c => c.Id == request.Id && c.UserId == userId, cancellationToken)

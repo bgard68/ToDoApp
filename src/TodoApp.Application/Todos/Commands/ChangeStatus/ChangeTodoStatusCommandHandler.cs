@@ -25,7 +25,7 @@ public class ChangeTodoStatusCommandHandler : IRequestHandler<ChangeTodoStatusCo
 
     public async Task<TodoItemDto> Handle(ChangeTodoStatusCommand request, CancellationToken cancellationToken)
     {
-        var userId = _currentUser.UserId ?? throw new UnauthorizedException();
+        var userId = _currentUser.RequireUserId();
 
         var entity = await _context.TodoItems
             .FirstOrDefaultAsync(t => t.Id == request.Id && t.UserId == userId, cancellationToken)
@@ -42,7 +42,7 @@ public class ChangeTodoStatusCommandHandler : IRequestHandler<ChangeTodoStatusCo
         {
             await _context.SaveChangesAsync(cancellationToken);
         }
-        catch (DbUpdateConcurrencyException)
+        catch (ConcurrencyViolationException exception)
         {
             var current = await _context.TodoItems
                 .AsNoTracking()
@@ -50,7 +50,8 @@ public class ChangeTodoStatusCommandHandler : IRequestHandler<ChangeTodoStatusCo
 
             throw new ConcurrencyConflictException(
                 "This item was modified by someone else. Reload and try again.",
-                current is null ? null : TodoItemDto.FromEntity(current));
+                current is null ? null : TodoItemDto.FromEntity(current),
+                exception);
         }
 
         return TodoItemDto.FromEntity(entity);

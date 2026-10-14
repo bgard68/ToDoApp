@@ -26,7 +26,7 @@ public class RevokeTokenCommandHandler : IRequestHandler<RevokeTokenCommand>
 
     public async Task Handle(RevokeTokenCommand request, CancellationToken cancellationToken)
     {
-        var userId = _currentUser.UserId ?? throw new UnauthorizedException();
+        var userId = _currentUser.RequireUserId();
 
         if (string.IsNullOrWhiteSpace(request.RefreshToken))
         {

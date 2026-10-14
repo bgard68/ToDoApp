@@ -75,7 +75,7 @@ is only an identity source.
 `SameSite=None` is needed because the SPA (`*.azurestaticapps.net`) and API
 (`*.azurewebsites.net`) are different sites. CSRF on `/refresh` is handled by the custom
 header: a cross-site form can't send one without a CORS preflight, and CORS allows only the
-SPA origin. Tokens are issued by `TokenResponseFactory.Issue`; the cookie is written by
+SPA origin. Tokens are issued by `ITokenIssuer.Issue`; the cookie is written by
 `RefreshTokenCookie`.
 
 ### JWT contents
@@ -234,7 +234,7 @@ From [docs/lessons.md](../lessons.md):
 | JWT validation, stamp check | `src/TodoApp.WebApi/Authentication/AuthenticationSetup.cs` |
 | Refresh cookie, CSRF header | `src/TodoApp.WebApi/Authentication/RefreshTokenCookie.cs` |
 | Endpoint policies | `src/TodoApp.WebApi/Endpoints/*.cs` |
-| Token issuance | `src/TodoApp.Application/Auth/Common/TokenResponseFactory.cs` |
+| Token issuance | `src/TodoApp.Application/Auth/Common/TokenIssuer.cs` |
 | Rotation, reuse detection | `src/TodoApp.Application/Auth/Commands/RefreshToken/RefreshTokenCommandHandler.cs` |
 | Revoke all | `src/TodoApp.Application/Auth/Commands/RevokeAllTokens/RevokeAllTokensCommandHandler.cs` |
 | Password hashing | `src/TodoApp.Infrastructure/Authentication/PasswordHasher.cs` |

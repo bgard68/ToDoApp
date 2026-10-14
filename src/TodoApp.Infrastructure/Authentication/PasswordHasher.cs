@@ -31,6 +31,17 @@ public class PasswordHasher : IPasswordHasher
     private const int Iterations = 600_000;
     private static readonly HashAlgorithmName Algorithm = HashAlgorithmName.SHA256;
 
+    // Derived from this instance's own Hash, so the decoy always costs exactly what a real
+    // verification costs even after the iteration count changes. Lazy so the cost is paid on
+    // first use rather than at construction, and once rather than per call; Lazy's default
+    // thread-safety makes a concurrent first sign-in compute it a single time.
+    private readonly Lazy<string> _decoyHash;
+
+    public PasswordHasher()
+    {
+        _decoyHash = new Lazy<string>(() => Hash("login-timing-equalisation-placeholder"));
+    }
+
     public string Hash(string password)
     {
         ArgumentException.ThrowIfNullOrEmpty(password);
@@ -59,6 +70,9 @@ public class PasswordHasher : IPasswordHasher
         var attempt = Rfc2898DeriveBytes.Pbkdf2(password, salt, iterations, Algorithm, key.Length);
         return CryptographicOperations.FixedTimeEquals(attempt, key);
     }
+
+    /// <inheritdoc />
+    public void VerifyDecoy(string password) => Verify(_decoyHash.Value, password);
 
     /// <summary>
     /// True when <paramref name="hash"/> was produced with weaker parameters than current policy,

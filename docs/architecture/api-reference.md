@@ -267,6 +267,11 @@ Two kinds of write conflict are handled explicitly, both returning **409**:
   clause, so if the item changed since you loaded it the save affects zero rows and the
   API responds `409` with the current server state under a `current` field. The client
   reloads and asks the user to re-apply. Omitting the token falls back to last-writer-wins.
+  As with the duplicate-key case below, the handler never names an EF type:
+  `ApplicationDbContext` re-throws the zero-rows failure as the Application-layer
+  `ConcurrencyViolationException`, and the handler turns that into the `409` after re-reading
+  the current row — keeping the original as the inner exception so the cause still reaches
+  the logs.
 - **Unique-constraint races.** Registration and Google sign-in pre-check for an existing
   email, but a concurrent duplicate insert is still caught and translated to `409` instead
   of a 500. The classification happens in one place — `UniqueConstraintDetector` reads the

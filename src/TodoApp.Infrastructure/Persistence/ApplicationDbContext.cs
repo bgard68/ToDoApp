@@ -28,16 +28,25 @@ public class ApplicationDbContext : DbContext, IApplicationDbContext
         => Entry(entity).Property(e => e.ConcurrencyToken).OriginalValue = token;
 
     /// <summary>
-    /// Translates a provider-specific uniqueness error into
-    /// <see cref="UniqueConstraintViolationException"/>, and leaves every other save failure
-    /// alone.
+    /// Translates the two save failures a handler can act on into layer-neutral exceptions —
+    /// <see cref="ConcurrencyViolationException"/> for a stale row and
+    /// <see cref="UniqueConstraintViolationException"/> for a provider-specific uniqueness error —
+    /// and leaves every other save failure alone.
     /// </summary>
     /// <remarks>
+    /// <para>
     /// Both public <c>SaveChangesAsync</c> overloads funnel through this one, as does
-    /// <see cref="SaveChanges(bool)"/>, so the translation cannot be bypassed by calling a
-    /// different overload. Nothing here swallows an exception: a failure that is not a
-    /// uniqueness violation propagates untouched, and the one that is keeps the provider's
-    /// error as its inner exception.
+    /// <see cref="SaveChanges(bool)"/>, so neither translation can be bypassed by calling a
+    /// different overload. Nothing here swallows an exception: a failure that is neither of the
+    /// two propagates untouched, and both of those keep the provider's error as their inner
+    /// exception.
+    /// </para>
+    /// <para>
+    /// The concurrency catch comes first because <c>DbUpdateConcurrencyException</c> derives from
+    /// <c>DbUpdateException</c>; ordered the other way the uniqueness filter would see it first.
+    /// That filter rejects it anyway — see <see cref="UniqueConstraintDetector"/> — so the order
+    /// is belt and braces rather than the only thing keeping them apart.
+    /// </para>
     /// </remarks>
     public override async Task<int> SaveChangesAsync(
         bool acceptAllChangesOnSuccess,
@@ -46,6 +55,10 @@ public class ApplicationDbContext : DbContext, IApplicationDbContext
         try
         {
             return await base.SaveChangesAsync(acceptAllChangesOnSuccess, cancellationToken);
+        }
+        catch (DbUpdateConcurrencyException exception)
+        {
+            throw new ConcurrencyViolationException(exception);
         }
         catch (DbUpdateException exception) when (UniqueConstraintDetector.IsUniqueViolation(exception))
         {
@@ -59,6 +72,10 @@ public class ApplicationDbContext : DbContext, IApplicationDbContext
         try
         {
             return base.SaveChanges(acceptAllChangesOnSuccess);
+        }
+        catch (DbUpdateConcurrencyException exception)
+        {
+            throw new ConcurrencyViolationException(exception);
         }
         catch (DbUpdateException exception) when (UniqueConstraintDetector.IsUniqueViolation(exception))
         {

@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using FluentAssertions;
 using TodoApp.Infrastructure.Authentication;
 using Xunit;
@@ -72,5 +73,36 @@ public class PasswordHashingTests
         var key = System.Security.Cryptography.Rfc2898DeriveBytes.Pbkdf2(
             password, salt, iterations, System.Security.Cryptography.HashAlgorithmName.SHA256, 32);
         return string.Join('.', iterations, Convert.ToBase64String(salt), Convert.ToBase64String(key));
+    }
+
+    [Fact]
+    public void VerifyDecoy_does_not_throw_whatever_it_is_given()
+    {
+        var act = () =>
+        {
+            Hasher.VerifyDecoy("some-password");
+            Hasher.VerifyDecoy(string.Empty);
+        };
+
+        act.Should().NotThrow("the sign-in path calls this on the unknown-email branch");
+    }
+
+    [Fact]
+    public void VerifyDecoy_actually_burns_the_work()
+    {
+        // Review finding L4: the decoy exists so an unknown email costs the same as a known one.
+        // A no-op implementation would still compile and still pass every other test here, while
+        // quietly restoring the account-enumeration oracle — so assert it does real work.
+        //
+        // 600,000 PBKDF2 iterations run in ~100ms; the floor is 5ms, a 20x margin, because a
+        // tight bound would be flaky on shared CI and the thing being ruled out is a no-op, not
+        // a slightly fast implementation.
+        Hasher.VerifyDecoy("warm-up");   // first call also computes the decoy hash
+
+        var stopwatch = Stopwatch.StartNew();
+        Hasher.VerifyDecoy("some-password");
+        stopwatch.Stop();
+
+        stopwatch.Elapsed.Should().BeGreaterThan(TimeSpan.FromMilliseconds(5));
     }
 }

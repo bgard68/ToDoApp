@@ -16,19 +16,22 @@ public class RegisterCommandHandler : IRequestHandler<RegisterCommand, AuthRespo
     private readonly IJwtTokenService _jwt;
     private readonly IDateTimeProvider _dateTime;
     private readonly IBreachedPasswordChecker _breachChecker;
+    private readonly ITokenIssuer _tokenIssuer;
 
     public RegisterCommandHandler(
         IApplicationDbContext db,
         IPasswordHasher hasher,
         IJwtTokenService jwt,
         IDateTimeProvider dateTime,
-        IBreachedPasswordChecker breachChecker)
+        IBreachedPasswordChecker breachChecker,
+        ITokenIssuer tokenIssuer)
     {
         _db = db;
         _hasher = hasher;
         _jwt = jwt;
         _dateTime = dateTime;
         _breachChecker = breachChecker;
+        _tokenIssuer = tokenIssuer;
     }
 
     public async Task<AuthResponse> Handle(RegisterCommand request, CancellationToken cancellationToken)
@@ -74,7 +77,7 @@ public class RegisterCommandHandler : IRequestHandler<RegisterCommand, AuthRespo
         // Give the new user a starter set of categories to rename/recolor/delete.
         _db.Categories.AddRange(Category.DefaultsFor(user.Id, now));
 
-        var response = TokenResponseFactory.Issue(user, _jwt, _db, now);
+        var response = _tokenIssuer.Issue(user, now);
         await _db.SaveChangesAsync(cancellationToken);
 
         return response;

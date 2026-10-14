@@ -17,17 +17,20 @@ public class GoogleSignInCommandHandler : IRequestHandler<GoogleSignInCommand, A
     private readonly IGoogleTokenValidator _google;
     private readonly IJwtTokenService _jwt;
     private readonly IDateTimeProvider _dateTime;
+    private readonly ITokenIssuer _tokenIssuer;
 
     public GoogleSignInCommandHandler(
         IApplicationDbContext db,
         IGoogleTokenValidator google,
         IJwtTokenService jwt,
-        IDateTimeProvider dateTime)
+        IDateTimeProvider dateTime,
+        ITokenIssuer tokenIssuer)
     {
         _db = db;
         _google = google;
         _jwt = jwt;
         _dateTime = dateTime;
+        _tokenIssuer = tokenIssuer;
     }
 
     public async Task<AuthResponse> Handle(GoogleSignInCommand request, CancellationToken cancellationToken)
@@ -49,7 +52,7 @@ public class GoogleSignInCommandHandler : IRequestHandler<GoogleSignInCommand, A
                 throw new UnauthorizedException("This account has been disabled.");
             }
 
-            var response = TokenResponseFactory.Issue(user, _jwt, _db, _dateTime.UtcNow);
+            var response = _tokenIssuer.Issue(user, _dateTime.UtcNow);
             await _db.SaveChangesAsync(cancellationToken);
 
             return response;

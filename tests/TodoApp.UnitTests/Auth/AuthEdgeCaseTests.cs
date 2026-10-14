@@ -221,7 +221,7 @@ public class AuthEdgeCaseTests
         db.Context.Users.Add(user);
         db.Context.SaveChanges();
 
-        var handler = new LoginCommandHandler(db.NewContext(), hasher, _jwt, _clock);
+        var handler = HandlerFactory.Login(db.NewContext(), hasher, _jwt, _clock);
         var act = () => handler.Handle(
             new LoginCommand { Email = "disabled@example.com", Password = "Password1" },
             CancellationToken.None);
@@ -242,7 +242,7 @@ public class AuthEdgeCaseTests
         var context = db.NewContext();
         context.Users.Add(new User("racer@example.com", "stand-in-hash", _clock.UtcNow));
 
-        var handler = new RegisterCommandHandler(
+        var handler = HandlerFactory.Register(
             context, new PasswordHasher(), _jwt, _clock, new FakeBreachedPasswordChecker());
 
         var act = () => handler.Handle(
@@ -264,7 +264,7 @@ public class AuthEdgeCaseTests
         var context = db.NewContext();
         context.ExternalLogins.Add(new ExternalLogin(9999, "Google", "sub-poison", _clock.UtcNow));
 
-        var handler = new RegisterCommandHandler(
+        var handler = HandlerFactory.Register(
             context, new PasswordHasher(), _jwt, _clock, new FakeBreachedPasswordChecker());
 
         var act = () => handler.Handle(
@@ -339,7 +339,7 @@ public class AuthEdgeCaseTests
         db.Context.Users.Add(user);
         db.Context.SaveChanges();
 
-        var handler = new GoogleSignInCommandHandler(
+        var handler = HandlerFactory.GoogleSignIn(
             db.NewContext(),
             new FakeGoogleTokenValidator
             {
@@ -362,7 +362,7 @@ public class AuthEdgeCaseTests
         db.Context.ExternalLogins.Add(new ExternalLogin(user.Id, "Google", "sub-linked", _clock.UtcNow));
         db.Context.SaveChanges();
 
-        var handler = new GoogleSignInCommandHandler(
+        var handler = HandlerFactory.GoogleSignIn(
             db.NewContext(),
             new FakeGoogleTokenValidator
             {
@@ -390,7 +390,7 @@ public class AuthEdgeCaseTests
         db.Context.ExternalLogins.Add(new ExternalLogin(9999, "Google", "sub-orphan", _clock.UtcNow));
         db.Context.SaveChanges();
 
-        var handler = new GoogleSignInCommandHandler(
+        var handler = HandlerFactory.GoogleSignIn(
             db.NewContext(),
             new FakeGoogleTokenValidator
             {
@@ -418,7 +418,7 @@ public class AuthEdgeCaseTests
         var context = db.NewContext();
         context.ExternalLogins.Add(new ExternalLogin(owner.Id, "Google", "sub-race", _clock.UtcNow));
 
-        var handler = new GoogleSignInCommandHandler(
+        var handler = HandlerFactory.GoogleSignIn(
             context,
             new FakeGoogleTokenValidator
             {

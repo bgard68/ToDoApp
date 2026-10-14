@@ -44,6 +44,10 @@ public class ConcurrencyTests
 
         var conflict = (await act.Should().ThrowAsync<ConcurrencyConflictException>()).Which;
         conflict.CurrentValue.Should().BeOfType<TodoItemDto>();
+
+        // The persistence layer hands the handler a layer-neutral type, not EF's, and the handler
+        // keeps it as the cause rather than discarding it.
+        conflict.InnerException.Should().BeOfType<ConcurrencyViolationException>();
     }
 
     [Fact]

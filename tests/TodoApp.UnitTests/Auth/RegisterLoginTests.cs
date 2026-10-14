@@ -20,7 +20,7 @@ public class RegisterLoginTests
     public async Task Register_CreatesUserAndIssuesTokens()
     {
         using var db = new TestDatabase();
-        var handler = new RegisterCommandHandler(db.Context, _hasher, _jwt, _clock, _breachChecker);
+        var handler = HandlerFactory.Register(db.Context, _hasher, _jwt, _clock, _breachChecker);
 
         var response = await handler.Handle(
             new RegisterCommand { Email = "New@Example.com", Password = "Password1" },
@@ -42,7 +42,7 @@ public class RegisterLoginTests
         db.Context.Users.Add(new User("dupe@example.com", _hasher.Hash("Password1"), _clock.UtcNow));
         db.Context.SaveChanges();
 
-        var handler = new RegisterCommandHandler(db.NewContext(), _hasher, _jwt, _clock, _breachChecker);
+        var handler = HandlerFactory.Register(db.NewContext(), _hasher, _jwt, _clock, _breachChecker);
         var act = () => handler.Handle(
             new RegisterCommand { Email = "dupe@example.com", Password = "Password1" },
             CancellationToken.None);
@@ -57,7 +57,7 @@ public class RegisterLoginTests
         db.Context.Users.Add(new User("user@example.com", _hasher.Hash("Password1"), _clock.UtcNow));
         db.Context.SaveChanges();
 
-        var handler = new LoginCommandHandler(db.NewContext(), _hasher, _jwt, _clock);
+        var handler = HandlerFactory.Login(db.NewContext(), _hasher, _jwt, _clock);
         var response = await handler.Handle(
             new LoginCommand { Email = "user@example.com", Password = "Password1" },
             CancellationToken.None);
@@ -72,7 +72,7 @@ public class RegisterLoginTests
         db.Context.Users.Add(new User("user@example.com", _hasher.Hash("Password1"), _clock.UtcNow));
         db.Context.SaveChanges();
 
-        var handler = new LoginCommandHandler(db.NewContext(), _hasher, _jwt, _clock);
+        var handler = HandlerFactory.Login(db.NewContext(), _hasher, _jwt, _clock);
         var act = () => handler.Handle(
             new LoginCommand { Email = "user@example.com", Password = "WrongPass1" },
             CancellationToken.None);
@@ -87,7 +87,7 @@ public class RegisterLoginTests
         db.Context.Users.Add(User.CreateExternal("google@example.com", _clock.UtcNow));
         db.Context.SaveChanges();
 
-        var handler = new LoginCommandHandler(db.NewContext(), _hasher, _jwt, _clock);
+        var handler = HandlerFactory.Login(db.NewContext(), _hasher, _jwt, _clock);
         var act = () => handler.Handle(
             new LoginCommand { Email = "google@example.com", Password = "anything1" },
             CancellationToken.None);
@@ -114,7 +114,7 @@ public class RegisterLoginTests
         db.Context.SaveChanges();
         var stampBefore = user.SecurityStamp;
 
-        var handler = new LoginCommandHandler(db.Context, real, _jwt, _clock);
+        var handler = HandlerFactory.Login(db.Context, real, _jwt, _clock);
         var response = await handler.Handle(
             new LoginCommand { Email = "legacy@example.com", Password = "Password1" },
             CancellationToken.None);

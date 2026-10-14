@@ -103,7 +103,8 @@ app grows.
 
 This is the single deliberate compromise in the architecture, so it's worth spelling out precisely.
 
-**What actually leaks.** Three concrete spots where `Application` touches EF Core directly:
+**What actually leaks.** Two concrete spots where `Application` touches EF Core directly, plus a
+third that has since been closed:
 
 1. **The port exposes an EF type.** `IApplicationDbContext` has `using Microsoft.EntityFrameworkCore;`
    and its members are `DbSet<TodoItem>`, `DbSet<Category>`, etc. `DbSet<T>` is an EF class, so the
@@ -111,14 +112,15 @@ This is the single deliberate compromise in the architecture, so it's worth spel
 2. **Handlers call EF query operators.** `FirstOrDefaultAsync`, `AnyAsync`, `ToListAsync`,
    `AsNoTracking` are `Microsoft.EntityFrameworkCore` extension methods — so the `Application` project
    references the EF Core package to compile.
-3. **A handler catches an EF exception.** `ChangeTodoStatusCommandHandler` catches
-   `DbUpdateConcurrencyException` — an EF type — inside application logic. This is the least tidy of
-   the three. The register / sign-in / category handlers used to catch its base type,
+3. ~~**A handler catches an EF exception.**~~ **Closed.** `ChangeTodoStatusCommandHandler` and
+   `UpdateTodoCommandHandler` caught `DbUpdateConcurrencyException` — an EF type — inside
+   application logic. The register / sign-in / category handlers caught its base type,
    `DbUpdateException`, which was worse than untidy: it is the base type for *every* save failure,
    so a dropped connection or a foreign-key violation came back to the caller as "already exists".
-   Those now catch the layer's own `UniqueConstraintViolationException`, raised by
-   `ApplicationDbContext` from the provider's error code — one EF type fewer in `Application`, and
-   the only remaining one is genuinely about a conflict rather than about EF.
+   Both translations now happen in `ApplicationDbContext`'s save overrides, which raise the
+   layer's own `UniqueConstraintViolationException` and `ConcurrencyViolationException` from the
+   provider's error. No EF exception type is named in `Application` any more. What remains of this
+   leak is only the EF *package* reference that leaks #1 and #2 already force.
 
 **Why it's a caveat.** Clean Architecture says inner layers depend only on abstractions they own,
 expressed in domain terms; the ORM is an infrastructure detail that should be swappable without
@@ -178,13 +180,14 @@ with scale, in roughly this order:
 
 **Recommendation** — *keep the current design.* For an app this size the pragmatic trade is the
 correct engineering call, and chasing the abstraction would add indirection users never feel. The one
-cheap improvement worth making is closing leak #3: move the `DbUpdateConcurrencyException` handling
-into an Infrastructure `SaveChangesAsync` that rethrows the domain `ConcurrencyConflictException` (~15
-lines, removes an EF type from business logic, no downside). That seam now exists — the
-`SaveChangesAsync` override already translates uniqueness failures via `UniqueConstraintDetector` —
-so this is reusing a mechanism rather than building one, though the concurrency case is the harder
-half: the handler also re-reads the current row to put it in the 409 body. Revisit full repositories +
-specifications only if/when a real second read model or reporting workload appears.
+cheap improvement worth making was closing leak #3, and it is now done: `ApplicationDbContext`'s save
+overrides translate a stale row into `ConcurrencyViolationException`, reusing the seam that already
+translated uniqueness failures via `UniqueConstraintDetector`. The concurrency case was the harder
+half, because the handler also re-reads the current row to put it in the 409 body — so the neutral
+exception stays payload-free and the handler still does that read, then wraps it in
+`ConcurrencyConflictException` (now carrying the original as its inner exception, so the cause still
+reaches the logs). Revisit full repositories + specifications only if/when a real second read model or
+reporting workload appears.
 
 ---
 
@@ -258,7 +261,7 @@ once dependencies were installed locally.
 - [ ] Enable Dependabot and/or CodeQL scanning.
 - [ ] Add `concurrency: { group: ..., cancel-in-progress: true }` to both workflows.
 - [ ] Remove the `Debug: repo files & lockfiles` step.
-- [ ] (Cheap, recommended) Move the `DbUpdateConcurrencyException` handling out of `ChangeTodoStatusCommandHandler` into an Infrastructure `SaveChangesAsync` that rethrows the domain `ConcurrencyConflictException` — removes the one EF type that leaks into application logic (~15 lines). The `SaveChangesAsync` override that translates uniqueness failures is the seam to extend; the catch also has to supply the current row for the 409 body.
+- [x] (Cheap, recommended) Move the `DbUpdateConcurrencyException` handling out of `ChangeTodoStatusCommandHandler` into an Infrastructure `SaveChangesAsync` that rethrows the domain `ConcurrencyConflictException` — removes the one EF type that leaks into application logic. **Done**: both save overrides raise `ConcurrencyViolationException`, and `ChangeTodoStatusCommandHandler` / `UpdateTodoCommandHandler` catch that instead of EF's type. The handler keeps the re-read for the 409 body, and now passes the cause through as the inner exception.
 - [ ] (Optional, purist) Introduce repository interfaces + the Specification pattern if you want to fully decouple `Application` from EF Core — see the EF coupling trade-off section for when this pays off.
 
 ## Related operational follow-ups (not code)
