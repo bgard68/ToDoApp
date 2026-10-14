@@ -22,6 +22,9 @@ The ones that cost the most time — jump to the section for the full story:
 - **A provisioning re-run would have created a duplicate stack** → [Provisioning scripts](#provisioning-scripts-three-defects-a-linter-cannot-see): `$RANDOM` names never converge, and an identity lookup that works for a human kills the script as a service principal. Neither is a syntax error; CI now runs the plan as the service principal.
 - **The database free tier ran dry at ~55 wakes/month** → [Database economics](#database-economics--why-prod-moved-from-azure-sql-to-neon): Azure SQL serverless bills a full hour per wake; prod now runs Postgres on Neon, and startup schema creation is opt-in so deploys stop waking the DB.
 - **First request after idle is slow / "Failed to fetch"** → [Cold starts on the free tier](deployment/cold-starts.md): the app *and* DB wake from sleep; the client retries `502/503/504` + network errors, and a keep-warm ping keeps the app loaded — from an external monitor, because GitHub's cron silently skips runs (a five-hour gap was observed).
+- **A database fault comes back as HTTP 409 "already exists"** -> [Save failures](#save-failures-one-exception-type-standing-in-for-four-different-faults): `catch (DbUpdateException)` catches every save failure, not just a duplicate key — and discarding it means nothing reaches the logs.
+- **A test passes forever while the bug it covers stays live** -> [Save failures](#save-failures-one-exception-type-standing-in-for-four-different-faults): the fixture staged an orphaned foreign key and asserted the duplicate-key result, so fixture and assertion agreed with each other and not with reality.
+- **A CI dependency audit goes red naming a package you never referenced** -> [dependency audit](development/dependency-audit.md#6-worked-example--an-advisory-three-levels-down-october-2026): it arrives transitively; pin it directly in the project that roots the chain.
 - **`<name>.azurewebsites.net` won't resolve** → [Networking / hostnames](#networking--hostnames): use the Overview page's regional Default domain.
 - **Drag-and-drop is dead on mobile** → [frontend notes](development/frontend-notes.md): the native HTML5 DnD API is touch-blind.
 - **Light mode is ignored in a phone browser** → [frontend notes](development/frontend-notes.md#darklight-mode--mobile-browsers-force-darken-a-light-only-page): mobile auto-dark force-darkens a light page; opt out with `color-scheme: only light` (the `only` keyword — `light dark` does not opt out).
@@ -136,6 +139,126 @@ narrow as it was.
 only running it proves it works. When a script has a dry-run mode, that mode is a free
 integration test, and the environment it runs in matters — the same script passes as a human and
 fails as a service principal, so the gate has to be the machine, not the developer.
+
+## Save failures: one exception type standing in for four different faults
+
+**The bugs.** Found 2026-10-13 and 2026-10-14, in code that compiled clean, passed 364 tests, and
+had been through CodeQL.
+
+1. **Every save failure was reported to the caller as "already exists."** Four handlers —
+   `Register`, `GoogleSignIn`, `CreateCategory`, `UpdateCategory` — guarded their insert like this:
+
+   ```csharp
+   catch (DbUpdateException)
+   {
+       throw new ConflictException("A category with this name already exists.");
+   }
+   ```
+
+   `DbUpdateException` is EF Core's base type for *every* save failure. A dropped Neon connection, a
+   foreign-key violation, a check-constraint failure, a timeout — all of them arrived as that type
+   and came back as HTTP 409 "already exists": a conflict the client was told it had caused, for a
+   fault that was neither its doing nor a conflict.
+
+2. **The same catch destroyed the evidence.** It discarded the exception, so the only branch that
+   logs — the 500 path in `GlobalExceptionHandler` — never saw it. A failing database produced a
+   tidy 409 and *no trace anywhere*. The bug was invisible in production by construction.
+
+3. **Two tests had the defect written into them as the expected result.**
+   `Register_WhenTheInsertIsRejected` and `Google_WhenTheInsertIsRejected` poisoned the context with
+   `new ExternalLogin(9999, ...)` — an **orphaned foreign key**, not a duplicate key — and asserted
+   a 409. They passed. They would have passed forever, because they asserted exactly the conflation
+   that was wrong. A test that encodes the bug is worse than no test: it reports the defect as
+   verified behaviour.
+
+4. **The concurrency path discarded its cause too.** Found a day later, while closing the EF leak
+   below. `ConcurrencyConflictException` had no `innerException` parameter at all, so the 409 for a
+   stale row dropped the underlying error on the floor — the same defect shape as #2, in the one
+   place the first fix had not touched.
+
+**Why every existing gate missed all four.** None is a syntax error or an unsafe pattern. Catching
+`DbUpdateException` around a save is *the* idiom you will find in every EF tutorial; it is wrong
+only because of how wide it is. The discarded exception is a `catch` that throws something else,
+which is normal and correct whenever the new exception carries the information forward. The tests in
+#3 passed because they were self-consistent — the fixture and the assertion agreed with each other,
+and both disagreed with reality. CodeQL has no rule for "this catch is broader than the handler's
+intent", because that intent exists only in the author's head. Compilation, 364 tests and static
+analysis were all satisfied. The only thing that would have caught it is asking *what else reaches
+this catch?*
+
+**The fix — classify once, in the layer that owns the vocabulary.** EF Core does not tell you *why*
+a save failed, so somebody has to read the provider's error code. The wrong place is a handler
+(four copies, and `Application` learning SQL Server error numbers); the right place is the
+persistence seam:
+
+- **`UniqueConstraintDetector`** (Infrastructure) reads the provider's own codes — SQLite 19/2067
+  and 1555, SQL Server 2627/2601, PostgreSQL SQLSTATE 23505 — walking the inner-exception chain.
+- **`ApplicationDbContext`** overrides **both** save paths, `SaveChangesAsync(bool, ct)` and
+  `SaveChanges(bool)`, so no overload can bypass the translation, and re-throws the two failures a
+  handler can actually act on as layer-neutral types: `UniqueConstraintViolationException` and
+  `ConcurrencyViolationException`. Everything else propagates untouched — a 500, logged, with its
+  cause.
+- **The handlers** catch the neutral type and pass it as the inner exception of the 409 they raise,
+  so the client gets its answer and the logs still get the truth.
+
+**How that closed the EF leak, specifically.** The assessment had tracked a third EF leak into
+`Application`: `ChangeTodoStatusCommandHandler` and `UpdateTodoCommandHandler` named
+`DbUpdateConcurrencyException` — an ORM type — in business logic. The same seam closed it. The order
+of the catches is load-bearing:
+
+```csharp
+catch (DbUpdateConcurrencyException exception)   // first: it DERIVES from DbUpdateException
+{
+    throw new ConcurrencyViolationException(exception);
+}
+catch (DbUpdateException exception) when (UniqueConstraintDetector.IsUniqueViolation(exception))
+{
+    throw new UniqueConstraintViolationException(exception);
+}
+```
+
+Reversed, the uniqueness filter sees the concurrency failure first. `UniqueConstraintDetector`
+excludes it explicitly as well — belt and braces — because "the UPDATE matched zero rows" is
+detected by EF from the row count, not by the driver from an error code, so it has no provider code
+to read.
+
+The neutral exception carries **no payload**, deliberately: the context cannot know which DTO shape
+the caller wants. That is why the handler keeps its re-read of the current row for the 409 body —
+the complication that had kept this item in the backlog, and the reason the fix is a translation
+rather than a move.
+
+> No EF *exception* type is named in `Application` any more. The project still references the EF
+> *package*, because `IApplicationDbContext` exposes `DbSet<T>` and the handlers call
+> `FirstOrDefaultAsync` / `AnyAsync` / `AsNoTracking`. One leak of three closed — see the
+> [EF coupling trade-off](architecture/assessment.md) for why the other two are a deliberate trade
+> and not an oversight.
+
+**How to prevent it.** Four rules, in order of how much they would have saved:
+
+1. **Catch the narrowest type that means what you are about to say.** A `catch` is an assertion
+   about cause. `DbUpdateException` asserts "any save failure", so if the handler's next line says
+   "already exists", the two do not match and the mismatch *is* the bug. Before writing a `catch`,
+   name one failure that reaches it and should **not** take that branch — if you can, it is too
+   wide.
+2. **Never discard the exception you caught.** Pass it as `innerException` even when the new
+   exception is a complete answer for the client. The client's answer and the operator's diagnosis
+   are different audiences, and the 409 only serves the first. Both neutral types keep the provider
+   error, and `ConflictException` and `ConcurrencyConflictException` both take an inner exception
+   now.
+3. **Make the fixture produce the failure you claim to be testing.** The tests in #3 failed this:
+   they staged an orphaned FK and called it a duplicate. The replacements stage the *real* race — a
+   pending row carrying the same email, and a pending row carrying the same
+   `(Provider, ProviderKey)` — where the pre-check is a query that cannot see the pending row and
+   the unique index rejects the save. If you cannot reproduce the fault honestly, the assertion is
+   about the fixture, not the system.
+4. **Pin the negative case.** The old FK poison was kept, re-pointed at what it actually proves:
+   `Register_WhenTheSaveFailsForAnotherReason_DoesNotReportAConflict` asserts `DbUpdateException`
+   rather than 409. A regression that re-widens the catch now fails a test instead of quietly
+   returning 409s again.
+
+**The rule.** *An exception type is a claim about what went wrong, and the width of a `catch` is the
+width of that claim.* Classify at the layer that owns the vocabulary, once, and let everything you
+did not recognise keep travelling — with its cause attached.
 
 ## Database economics — why prod moved from Azure SQL to Neon
 
