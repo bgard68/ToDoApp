@@ -245,6 +245,104 @@ per package, so related updates move together by default.
 
 ---
 
+## 6. Worked example — an advisory three levels down (October 2026)
+
+The .NET side has its own audit, and this is what it looks like when it fires on something nobody
+wrote down anywhere.
+
+### What went red
+
+A pull request that touched no `PackageReference` and no `packages.lock.json` came back with
+`Build & Test` failing. Build, unit tests and integration tests had all passed — the failure was the
+later **Audit dependencies for known vulnerabilities** step. Branch protection then refuses the
+merge (`405 Repository rule violations found`), so the PR is stuck on something it did not cause.
+
+The audit is two independent gates, which is why it fires reliably:
+
+- `NuGetAudit` / `NuGetAuditMode=all` in `Directory.Build.props`, with `NU1901`–`NU1904` promoted to
+  errors, so a vulnerable package fails the **restore**;
+- an explicit CI step that runs `dotnet list package --vulnerable --include-transitive` and greps
+  the output for `Critical|High|Moderate`, so it fails even where restore-time warnings do not
+  inherit `TreatWarningsAsErrors`.
+
+### Finding what and where
+
+```bash
+dotnet restore TodoApp.sln
+dotnet list package --vulnerable --include-transitive
+```
+
+`System.Security.Cryptography.Pkcs` 9.0.11, flagged in four projects. Nothing references it. The
+chain matters more than the name, and `dotnet nuget why` prints it:
+
+```bash
+dotnet nuget why TodoApp.sln System.Security.Cryptography.Pkcs
+```
+
+```
+Microsoft.EntityFrameworkCore.SqlServer (v10.0.12)
+  └── Microsoft.Data.SqlClient (v6.1.6)
+      └── System.Security.Cryptography.Pkcs (v9.0.11)
+```
+
+Two advisories, both denial of service by quadratic work on attacker-supplied input:
+**GHSA-846f-f764-76mx** (High — repeated reparsing of malicious X.509 data in
+`SignedCms.CheckSignature`) and **GHSA-2fmv-rv2c-59x7** (Moderate, CVSS 5.9 —
+`EnvelopedCms.Decode` over CMS/PKCS#7 attributes, pre-authentication on Windows). Patched in
+8.0.2, 9.0.21 and 10.0.13.
+
+### The fix
+
+A **direct** `PackageReference` wins over a transitive one, so pin the patched version in the
+project that *roots* the chain — here `TodoApp.Infrastructure`. That one pin then covers `WebApi`
+and both test projects through their project references, rather than needing four.
+
+```xml
+<PackageReference Include="System.Security.Cryptography.Pkcs" Version="10.0.13" />
+```
+
+Pinned on the 10.0.x line to match the `net10.0` target; 9.0.21 is the equivalent fix on 9.0.x.
+Leave a comment saying which advisory it answers and when it can go away — this repository already
+had the same shape of override for `SQLitePCLRaw.lib.e_sqlite3`, and the comment is what stops a
+future cleanup from quietly reintroducing the vulnerability.
+
+Then refresh the lock files, because `Directory.Build.props` sets `RestoreLockedMode` on CI:
+
+```bash
+dotnet restore TodoApp.sln --force-evaluate
+```
+
+`--force-evaluate` regenerates **every** project's lock file in one pass. Doing it per project is
+how you get `NU1004` in CI — see [§5](#nu1004--one-bump-several-lock-files).
+
+> **Watch for a no-op diff.** `--force-evaluate` rewrote six lock files here, but two of them
+> differed only by line endings, with no content change. Stage and check `git diff --cached --stat`
+> before committing, so the commit carries the four real changes and not two files of CRLF churn.
+
+### Two things worth keeping from it
+
+- **The bump you need is not always the package named in the advisory's dependency chain.**
+  `Microsoft.Data.SqlClient` is in this repo's Dependabot `ignore` list, which looked like it would
+  force a hand-made major bump. It did not: SqlClient never needed touching. Pinning the vulnerable
+  *leaf* directly satisfies its declared `>= 9.0.11` and leaves it at 6.1.6. Check the leaf before
+  assuming you have to move its parent.
+- **A transitive advisory is almost never "this branch's problem."** The pull request's merge-base
+  *was* `origin/main`, and the package arrives through a dependency both share — so `main` was
+  equally affected and the same failure would have hit any PR opened that day. Confirm with
+  `git merge-base`, fix it on the branch that is already open, and it clears for everything behind
+  it. (The matching symptom from the npm side is in
+  [§5](#check-the-base-branch-before-any-individual-pr): a required check failing on `main` blocks
+  every open PR.)
+- **Verify the pin is still load-bearing before anyone removes it.** A later Dependabot PR bumped
+  SqlClient to 6.1.7, which reads like the override's expiry condition. Its `.nuspec` still declares
+  `System.Security.Cryptography.Pkcs` 9.0.11 (and 8.0.1 on older frameworks — also unpatched), so
+  the pin still does real work. `curl` the nuspec and check before deleting a security override:
+  ```bash
+  curl -sL https://api.nuget.org/v3-flatcontainer/microsoft.data.sqlclient/6.1.7/microsoft.data.sqlclient.nuspec | grep -i pkcs
+  ```
+
+---
+
 _See also: [Testing guide](testing.md) · [CI/CD pipeline testing](../deployment/pipeline.md) ·
 [Lessons learned](../lessons.md#security-scanning-codeql-gitleaks--dependabot)._
 
