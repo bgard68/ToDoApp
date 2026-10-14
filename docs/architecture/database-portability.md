@@ -82,11 +82,25 @@ The `ConcurrencyToken` is an application-managed `Guid` marked `IsConcurrencyTok
 the same everywhere. **Do not** switch to SQL Server `rowversion` — it has no SQLite/Postgres
 equivalent and would break portability.
 
-### 5. Conflict detection — already neutral
+### 5. Conflict detection — neutral at the layer boundary
 
-The 409 path catches EF Core's `DbUpdateException` / `DbUpdateConcurrencyException`, never provider
-error numbers (SQL Server 2601 / 1785, etc.). **Policy:** enforce every uniqueness rule with a real
-DB constraint (so it is race-safe) and translate the *EF* exception, never the raw SQL error code.
+A uniqueness race must come back as **409**, and any other save failure as **500**. EF Core cannot
+tell them apart for you: `DbUpdateException` is the base type for every save failure, and it offers
+no "was this a duplicate key?" question. Catching it wholesale — which the handlers used to do —
+reports a dropped connection or a foreign-key violation to the caller as "already exists", and
+discards the original exception so nothing reaches the logs either.
+
+So the provider's error code **is** read, in exactly one place:
+`Infrastructure/Persistence/UniqueConstraintDetector.cs` (SQLite 19/2067, SQL Server 2627/2601,
+PostgreSQL SQLSTATE 23505). `ApplicationDbContext.SaveChangesAsync` uses it to re-throw a
+uniqueness failure as the Application-layer `UniqueConstraintViolationException`, with the provider
+error kept as the inner exception, and lets everything else propagate untouched.
+
+**Policy:** enforce every uniqueness rule with a real DB constraint (so it is race-safe); keep
+provider error numbers in that one Infrastructure file; have handlers catch the neutral
+`UniqueConstraintViolationException`, never `DbUpdateException`. Adding a fourth provider means
+adding one `switch` arm there and nothing else — but forgetting to is a silent regression to a 500
+on a duplicate, so add the arm when you add the provider.
 
 ### 6. Transient-failure retry — abstract behind the provider branch
 
@@ -105,7 +119,7 @@ list (`-2` for serverless cold starts) is meaningless to Npgsql. Configure the e
 | Cascade deletes             | ✅ `ClientCascade` (EF-side)                       |
 | Timestamps                  | ✅ UTC-ticks converter                             |
 | Concurrency token           | ✅ app-managed `Guid`                              |
-| Conflict → 409              | ✅ catches EF exception, not error codes           |
+| Conflict → 409              | ✅ one provider-code check, in Infrastructure only |
 | Enum / bool / max-length    | ✅ provider-agnostic conversions                   |
 | **Unique-index casing**     | ⚠️ **needs `NameNormalized` column + index**      |
 | Retry policy                | ⚠️ tune per provider inside the provider branch    |
