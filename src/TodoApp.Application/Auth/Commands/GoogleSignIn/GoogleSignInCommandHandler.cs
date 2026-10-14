@@ -54,11 +54,13 @@ public class GoogleSignInCommandHandler : IRequestHandler<GoogleSignInCommand, A
 
             return response;
         }
-        catch (DbUpdateException)
+        catch (UniqueConstraintViolationException exception)
         {
             // A concurrent first-time sign-in created the same user/external login (unique
-            // index on Email or (Provider, ProviderKey)). Ask the client to retry.
-            throw new ConflictException("This sign-in conflicted with a concurrent request. Please try again.");
+            // index on Email or (Provider, ProviderKey)). Ask the client to retry. A save that
+            // failed for any other reason is not a race and is left to surface as a 500.
+            throw new ConflictException(
+                "This sign-in conflicted with a concurrent request. Please try again.", exception);
         }
     }
 
