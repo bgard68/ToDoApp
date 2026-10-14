@@ -68,50 +68,14 @@ updates:
       - dependency-name: "Microsoft.Data.SqlClient"
         update-types: ["version-update:semver-major"]
 
-  # GitHub Actions on the dapper branch. Dependabot only reads this file from the DEFAULT branch,
-  # so every branch that needs updates must be declared here explicitly (review finding M6).
-  - package-ecosystem: "github-actions"
-    directory: "/"
-    target-branch: "dapper"
-    schedule:
-      interval: "weekly"
-    open-pull-requests-limit: 5
-    groups:
-      github-actions:
-        patterns: ["*"]
-
-  - package-ecosystem: "nuget"
-    directory: "/"
-    target-branch: "dapper"
-    schedule:
-      interval: "weekly"
-    open-pull-requests-limit: 5
-    groups:
-      nuget:
-        patterns: ["*"]
-        update-types: ["minor", "patch"]
-    # Held at the last permissively licensed major, pending a planned refactor.
-    #
-    # FluentAssertions 8 moved to the Xceed Community License and MediatR 13 to a
-    # commercial one. Both are free at this project's size, and neither is a licence
-    # this project needs to accept to keep a test assertion library and an in-process
-    # mediator working. 6.12.2 and 12.5.0 are Apache 2.0 with no conditions, and carry
-    # no advisory — `dotnet list package --vulnerable` is clean.
-    #
-    # Ignored rather than closed each week: a decision that has to be retaken every
-    # Monday is not a decision. Remove these two entries when the refactor lands and
-    # the upgrade is wanted; patches within the current major still arrive.
-    ignore:
-      - dependency-name: "FluentAssertions"
-        update-types: ["version-update:semver-major"]
-      - dependency-name: "MediatR"
-        update-types: ["version-update:semver-major"]
-      - dependency-name: "FluentValidation*"
-        update-types: ["version-update:semver-major"]
-      - dependency-name: "Swashbuckle.AspNetCore"
-        update-types: ["version-update:semver-major"]
-      - dependency-name: "Microsoft.Data.SqlClient"
-        update-types: ["version-update:semver-major"]
+  # The 'dapper' branch is NOT listed here, deliberately. Dependabot only reads this file from the
+  # DEFAULT branch, so a branch with no entry gets no updates (review finding M6) — which is the
+  # intent: that branch is frozen as a working EF-Core-vs-Dapper comparison, documented in
+  # docs/development/data-access-and-sql-dialects.md. It forked before main's PostgreSQL provider
+  # landed and cannot deploy, so there is no production exposure to patch, and keeping it current
+  # meant reviewing a second dependency stream and a second set of lock files every week for an
+  # artifact whose value is that it stays as it is. Re-add a target-branch block here if it ever
+  # becomes a deployable branch again.
 
   # The React SPA lives on the 'frontend' branch. Without these entries its dependency tree —
   # React, Vite, Vitest and everything transitive — was monitored by nothing at all (M6).
