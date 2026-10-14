@@ -10,29 +10,25 @@ namespace TodoApp.Application.Auth.Commands.Login;
 
 public class LoginCommandHandler : IRequestHandler<LoginCommand, AuthResponse>
 {
-    // Computed once from the live hasher so the decoy always costs exactly what a real
-    // verification costs, even if the iteration count changes. The hasher is a stateless
-    // singleton; a benign race just computes this twice.
-    private static string? _dummyHash;
-
     private readonly IApplicationDbContext _db;
     private readonly IPasswordHasher _hasher;
     private readonly IJwtTokenService _jwt;
     private readonly IDateTimeProvider _dateTime;
+    private readonly ITokenIssuer _tokenIssuer;
 
     public LoginCommandHandler(
         IApplicationDbContext db,
         IPasswordHasher hasher,
         IJwtTokenService jwt,
-        IDateTimeProvider dateTime)
+        IDateTimeProvider dateTime,
+        ITokenIssuer tokenIssuer)
     {
         _db = db;
         _hasher = hasher;
         _jwt = jwt;
         _dateTime = dateTime;
+        _tokenIssuer = tokenIssuer;
     }
-
-    private string DummyHash => _dummyHash ??= _hasher.Hash("login-timing-equalisation-placeholder");
 
     public async Task<AuthResponse> Handle(LoginCommand request, CancellationToken cancellationToken)
     {
@@ -48,10 +44,10 @@ public class LoginCommandHandler : IRequestHandler<LoginCommand, AuthResponse>
         }
         else
         {
-            // Equalise timing. Skipping verification here would return in microseconds for an
-            // unknown email versus ~100ms for a known one — a reliable account-enumeration
-            // oracle (review finding L4). Burn the same PBKDF2 work and discard the result.
-            _hasher.Verify(DummyHash, request.Password);
+            // Equalise timing: burn the same PBKDF2 work an existing account would cost, so an
+            // unknown email cannot be told from a known one by how long the answer takes
+            // (review finding L4).
+            _hasher.VerifyDecoy(request.Password);
             passwordOk = false;
         }
 
@@ -73,7 +69,7 @@ public class LoginCommandHandler : IRequestHandler<LoginCommand, AuthResponse>
             user.UpgradePasswordHash(_hasher.Hash(request.Password), _dateTime.UtcNow);
         }
 
-        var response = TokenResponseFactory.Issue(user, _jwt, _db, _dateTime.UtcNow);
+        var response = _tokenIssuer.Issue(user, _dateTime.UtcNow);
         await _db.SaveChangesAsync(cancellationToken);
 
         return response;

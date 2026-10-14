@@ -25,7 +25,7 @@ public class CreateTodoCommandHandler : IRequestHandler<CreateTodoCommand, TodoI
 
     public async Task<TodoItemDto> Handle(CreateTodoCommand request, CancellationToken cancellationToken)
     {
-        var userId = _currentUser.UserId ?? throw new UnauthorizedException();
+        var userId = _currentUser.RequireUserId();
 
         // A supplied category must belong to the current user.
         if (request.CategoryId is int categoryId &&

@@ -25,7 +25,7 @@ public class RevokeAllTokensCommandHandler : IRequestHandler<RevokeAllTokensComm
 
     public async Task Handle(RevokeAllTokensCommand request, CancellationToken cancellationToken)
     {
-        var currentUserId = _currentUser.UserId ?? throw new UnauthorizedException();
+        var currentUserId = _currentUser.RequireUserId();
         var targetUserId = request.UserId ?? currentUserId;
 
         // Only an admin may revoke sessions for a different user.

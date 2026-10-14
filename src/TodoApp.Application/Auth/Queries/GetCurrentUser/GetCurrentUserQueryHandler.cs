@@ -19,7 +19,7 @@ public class GetCurrentUserQueryHandler : IRequestHandler<GetCurrentUserQuery, U
 
     public async Task<UserDto> Handle(GetCurrentUserQuery request, CancellationToken cancellationToken)
     {
-        var userId = _currentUser.UserId ?? throw new UnauthorizedException();
+        var userId = _currentUser.RequireUserId();
 
         var user = await _db.Users
             .AsNoTracking()

@@ -15,7 +15,8 @@ public class GoogleSignInTests
     private readonly FakeDateTimeProvider _clock = new();
 
     private GoogleSignInCommandHandler CreateHandler(TestDatabase db, GoogleUserInfo? payload) =>
-        new(db.NewContext(), new FakeGoogleTokenValidator { Result = payload }, _jwt, _clock);
+        HandlerFactory.GoogleSignIn(
+            db.NewContext(), new FakeGoogleTokenValidator { Result = payload }, _jwt, _clock);
 
     [Fact]
     public async Task Google_NewEmail_CreatesUserAndExternalLogin()

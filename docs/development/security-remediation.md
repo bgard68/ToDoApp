@@ -384,7 +384,7 @@ hook, not the policy.)*
 | **L1** | Integration tests now run in CI — they were built but never executed, so the auth flows were unverified on every deploy. | `api-ci-cd.yml` step "Run integration tests" |
 | **L2** | Provisioning runtime `DOTNETCORE 8.0` → `10.0`, matching `net10.0`. A clean provision previously produced an App Service that couldn't run the app. | both `provision.sh` and `Provision.ps1` |
 | **L3** | `docker-compose.yml` referenced `./frontend`, which moved to its own branch — the file could not build. Now takes `FRONTEND_PATH` with a `git worktree` recipe in the comment, and fails with a clear message if unset. | `${FRONTEND_PATH:?...}` |
-| **L4** | Login no longer skips password verification for unknown emails — it verifies against a decoy hash and discards the result, so a miss and a hit take the same time. The decoy is derived from the live hasher, so it tracks any iteration-count change. | `LoginCommandHandler.DummyHash` |
+| **L4** | Login no longer skips password verification for unknown emails — it verifies against a decoy hash and discards the result, so a miss and a hit take the same time. The decoy lives in the hasher, derived from its own `Hash` at the current work factor, so it tracks any iteration-count change and no handler has to cache it. | `PasswordHasher.VerifyDecoy` |
 | **L5** | `UseHsts()` + `UseHttpsRedirection()` outside Development. | part of the H2 pipeline change |
 | **L7** | An expired refresh token is now marked revoked on presentation, so it can't sit active forever without ever tripping reuse detection. | `RefreshTokenCommandHandler` |
 | **L12** | Removed the CI step that dumped the repo tree on every run. | `api-ci-cd.yml` |

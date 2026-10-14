@@ -49,7 +49,7 @@ The `/api/auth/login` endpoint is marked `AllowAnonymous`. It hands the command 
 - Normalizes the email, looks up the user (`_db.Users.FirstOrDefaultAsync`).
 - Verifies the password with the **PBKDF2 hasher** (`_hasher.Verify`, fixed-time comparison) and checks
   `user.IsActive`. A bad password or missing user throws `UnauthorizedException` → 401.
-- On success, `TokenResponseFactory.Issue(...)` mints a **short-lived JWT access token** (carrying
+- On success, the injected `ITokenIssuer.Issue(...)` mints a **short-lived JWT access token** (carrying
   `sub`, `email`, `role`, and the user's **security stamp** `sstamp`) plus a **refresh token** (a random
   value; only its SHA-256 hash is saved to the DB). `SaveChangesAsync` persists the refresh token.
 - The endpoint writes the refresh token to an **`httpOnly`, `Secure`, `SameSite=None` cookie**

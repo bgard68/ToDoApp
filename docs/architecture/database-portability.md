@@ -96,11 +96,18 @@ PostgreSQL SQLSTATE 23505). `ApplicationDbContext.SaveChangesAsync` uses it to r
 uniqueness failure as the Application-layer `UniqueConstraintViolationException`, with the provider
 error kept as the inner exception, and lets everything else propagate untouched.
 
+The same override does the one other translation a handler can act on: a stale row — EF's
+`DbUpdateConcurrencyException`, meaning the UPDATE matched zero rows — becomes
+`ConcurrencyViolationException`. That one needs no provider error code, since EF detects it from the
+row count rather than from the driver, which is why the detector deliberately excludes it. Its catch
+is ordered first because it derives from `DbUpdateException`.
+
 **Policy:** enforce every uniqueness rule with a real DB constraint (so it is race-safe); keep
 provider error numbers in that one Infrastructure file; have handlers catch the neutral
-`UniqueConstraintViolationException`, never `DbUpdateException`. Adding a fourth provider means
-adding one `switch` arm there and nothing else — but forgetting to is a silent regression to a 500
-on a duplicate, so add the arm when you add the provider.
+`UniqueConstraintViolationException` or `ConcurrencyViolationException`, never `DbUpdateException`
+or `DbUpdateConcurrencyException`. Adding a fourth provider means adding one `switch` arm there and
+nothing else — but forgetting to is a silent regression to a 500 on a duplicate, so add the arm when
+you add the provider.
 
 ### 6. Transient-failure retry — abstract behind the provider branch
 

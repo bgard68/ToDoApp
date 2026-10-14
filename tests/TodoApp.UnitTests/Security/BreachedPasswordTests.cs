@@ -23,7 +23,7 @@ public class BreachedPasswordTests
     {
         using var db = new TestDatabase();
         _breachChecker.Breached = true;
-        var handler = new RegisterCommandHandler(db.Context, Hasher, _jwt, _clock, _breachChecker);
+        var handler = HandlerFactory.Register(db.Context, Hasher, _jwt, _clock, _breachChecker);
 
         var act = () => handler.Handle(
             new RegisterCommand { Email = "someone@example.test", Password = "Password1" },
@@ -39,7 +39,7 @@ public class BreachedPasswordTests
     {
         using var db = new TestDatabase();
         _breachChecker.Breached = true;
-        var handler = new RegisterCommandHandler(db.Context, Hasher, _jwt, _clock, _breachChecker);
+        var handler = HandlerFactory.Register(db.Context, Hasher, _jwt, _clock, _breachChecker);
 
         try
         {
@@ -60,7 +60,7 @@ public class BreachedPasswordTests
     {
         using var db = new TestDatabase();
         _breachChecker.Breached = false;
-        var handler = new RegisterCommandHandler(db.Context, Hasher, _jwt, _clock, _breachChecker);
+        var handler = HandlerFactory.Register(db.Context, Hasher, _jwt, _clock, _breachChecker);
 
         var response = await handler.Handle(
             new RegisterCommand { Email = "someone@example.test", Password = "Password1" },
@@ -77,7 +77,7 @@ public class BreachedPasswordTests
         // outage at the lookup service must never become an outage here.
         using var db = new TestDatabase();
         var failOpen = new FakeBreachedPasswordChecker { Breached = false };
-        var handler = new RegisterCommandHandler(db.Context, Hasher, _jwt, _clock, failOpen);
+        var handler = HandlerFactory.Register(db.Context, Hasher, _jwt, _clock, failOpen);
 
         var response = await handler.Handle(
             new RegisterCommand { Email = "someone@example.test", Password = "Password1" },

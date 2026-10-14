@@ -80,6 +80,28 @@ public class ExceptionTests
     }
 
     [Fact]
+    public void ConcurrencyViolation_KeepsTheProviderError()
+    {
+        var provider = new InvalidOperationException("zero rows matched");
+
+        var exception = new ConcurrencyViolationException(provider);
+
+        exception.Message.Should().NotBeNullOrWhiteSpace();
+        exception.InnerException.Should().BeSameAs(provider);
+    }
+
+    [Fact]
+    public void ConcurrencyConflict_KeepsTheUnderlyingDatabaseError()
+    {
+        // The 409 is the client's answer; it must not cost the logs the actual cause.
+        var cause = new ConcurrencyViolationException(new InvalidOperationException("zero rows"));
+
+        var exception = new ConcurrencyConflictException("Stale.", new { Id = 1 }, cause);
+
+        exception.InnerException.Should().BeSameAs(cause);
+    }
+
+    [Fact]
     public void ConcurrencyConflict_MayCarryNothing()
     {
         new ConcurrencyConflictException("Stale.", null).CurrentValue.Should().BeNull();
