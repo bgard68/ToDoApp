@@ -38,6 +38,15 @@
           "Microsoft.TestPlatform.TestHost": "18.10.1"
         }
       },
+      "NetArchTest.eNhancedEdition": {
+        "type": "Direct",
+        "requested": "[1.4.5, )",
+        "resolved": "1.4.5",
+        "contentHash": "dfWIjcLS2MBGz403OoT+vxr/4Dz/f7MnQhEwmgaf7PXlWzG39LSiUPhW7OPx9Ebg/GNWvDAttlpq5FY0mG/qkg==",
+        "dependencies": {
+          "Mono.Cecil": "0.11.6"
+        }
+      },
       "SQLitePCLRaw.lib.e_sqlite3": {
         "type": "Direct",
         "requested": "[3.53.3, )",
@@ -326,6 +335,11 @@
           "Microsoft.TestPlatform.ObjectModel": "18.10.1"
         }
       },
+      "Mono.Cecil": {
+        "type": "Transitive",
+        "resolved": "0.11.6",
+        "contentHash": "f33RkDtZO8VlGXCtmQIviOtxgnUdym9xx/b1p9h91CRGOsJFxCFOFK1FDbVt1OCf1aWwYejUFa2MOQyFWTFjbA=="
+      },
       "Newtonsoft.Json": {
         "type": "Transitive",
         "resolved": "13.0.4",
@@ -405,8 +419,8 @@
       },
       "System.Security.Cryptography.Pkcs": {
         "type": "Transitive",
-        "resolved": "9.0.11",
-        "contentHash": "YS2YqtN6fFjlTDIQI+ucjbbrEvwMn796r+VLTQRr/5Oy6g+i+m7nIou83KnJCnAcKna2I+5eVJRks6SoHSpetQ=="
+        "resolved": "10.0.13",
+        "contentHash": "a+EovgC1fBnwdlQ6cn3j4JFBfKqiFaFvoAhjisOoSvazLAcIznaBzPQP0oYnvccmeXfqUH1KebVZOxSeH6rMaw=="
       },
       "System.Security.Cryptography.ProtectedData": {
         "type": "Transitive",
@@ -474,6 +488,7 @@
           "Microsoft.Data.Sqlite": "[10.0.12, )",
           "SQLitePCLRaw.lib.e_sqlite3": "[3.53.3, )",
           "System.IdentityModel.Tokens.Jwt": "[8.23.0, )",
+          "System.Security.Cryptography.Pkcs": "[10.0.13, )",
           "TodoApp.Application": "[1.0.0, )",
           "TodoApp.Domain": "[1.0.0, )"
         }
