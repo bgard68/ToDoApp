@@ -61,6 +61,11 @@ jobs:
       - name: Run frontend tests (gate - deploy is skipped if these fail)
         run: npm test
 
+      # Deterministic architecture rules (no circular imports, production code never imports
+      # test code, every import resolves). Config in .dependency-cruiser.cjs.
+      - name: Architecture rules (dependency-cruiser)
+        run: npm run depcruise
+
       # The CSP names the API origin explicitly in connect-src. If it doesn't match the
       # VITE_API_URL the bundle is built against, the browser blocks every API call and the app
       # looks broken with only a console error to explain it. This exact mistake was made once
