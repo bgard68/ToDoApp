@@ -16,6 +16,10 @@ namespace TodoApp.Application.Auth.Common;
 /// </remarks>
 public interface ITokenIssuer
 {
+    /// <summary>
+    /// Issues the access/refresh token pair for the user as of <paramref name="now"/> and
+    /// stages the refresh token for persistence.
+    /// </summary>
     /// <param name="user">The authenticated user to issue for.</param>
     /// <param name="now">
     /// The timestamp to record. Passed in rather than read from a clock here, so a caller that
