@@ -104,15 +104,34 @@ which builds, runs the test gate, and deploys to **Azure Static Web Apps** — r
 environment via `production_branch: frontend`. The same SWA serves whichever backend is currently
 deployed; the backends deploy independently from their own branches.
 
-**The concurrency group names the event, and has to.** Merging a pull request starts two runs of this
-workflow in the same second: the push to `frontend`, which deploys, and the pull request's `closed`
-event, which tears the preview environment down. The group was keyed on `github.ref` alone, and on a
-merged pull request's closed event that no longer separates the two — so both landed in one group and
-`cancel-in-progress: true` let the teardown cancel the deploy. Nothing went red, because a cancelled
-run is not a failed run and the teardown finished green; production simply kept serving the previous
-build. It raced that way from 2026-10-02 until 2026-10-29, when a health sweep found no successful
-push deploy in retained history. `${{ github.event_name }}` in the group restores the intent: a deploy
-is superseded only by a newer deploy. DevSecOps Sentinel's **GHA013** now scans for the broken shape.
+### A production deploy is never cancelled
+
+This workflow does two jobs: it deploys production on a push to `frontend`, and it tears down the
+preview environment when a pull request closes. Merging starts one of each **in the same second**,
+which is what made the following possible.
+
+The concurrency group was keyed on `github.ref` alone. On a merged pull request's closed event that
+no longer separated the two runs, so both landed in one group and `cancel-in-progress: true` let the
+teardown cancel the deploy. Nothing went red — a cancelled run is not a failed run, and the teardown
+itself finished green — so production simply kept serving the previous build. It raced that way from
+2026-10-02 until 2026-10-29, when a health sweep noticed there was no successful push deploy left in
+retained history at all.
+
+Two guards now hold, and both have to be kept:
+
+- **`${{ github.event_name }}` in the group**, so a deploy shares a group only with other deploys.
+- **`cancel-in-progress` restricted to pull request runs**, so nothing can cancel a production
+  deploy even if the groups ever collide again. A second push queues behind the first instead of
+  killing it. PR runs still cancel their own supersedes, which is where the saved minutes are.
+
+The second guard is what makes this self-healing rather than merely fixed: no failure mode is left
+that needs someone to notice a missing deploy and re-run it by hand. LotteryApp, Net10Sudoku and
+DevSecOpsSentinel reached the same arrangement for the same reason.
+
+Reintroducing the broken shape is a scanner finding: DevSecOps Sentinel's **GHA013** reports a
+workflow that deploys on push, handles `closed` pull requests, groups without the event, and cancels
+in progress. The weekly audit runs it across every public repository, so this cannot come back
+quietly anywhere in the fleet.
 
 ## Relationship to the backends
 
