@@ -15,15 +15,23 @@ permissions:
   contents: read
   pull-requests: write
 
-# Scoped by event name as well as ref. Merging a PR starts two runs at once: the push to
-# frontend (the production deploy) and the PR's "closed" teardown; with ref-only groups the
-# closed event landed in the push run's group and cancel-in-progress killed the deploy —
-# every losing race since at least 2026-10-02 shipped nothing while the teardown showed
-# green. With the event in the group, a production deploy is only ever superseded by a
-# newer production deploy, and PR runs cancel only each other.
+# Two independent guards, because this workflow both deploys production and tears down pull
+# request previews, and a merge starts one of each in the same second.
+#
+# The group names the event: with ref-only groups the closed-PR teardown landed in the push
+# run's group and cancelled the deploy — every losing race from 2026-10-02 to 2026-10-29
+# shipped nothing, while the teardown reported green and nothing went red, because a
+# cancelled run is not a failed run.
+#
+# cancel-in-progress is then restricted to pull request runs, so a production deploy cannot
+# be cancelled by anything at all: a second push queues behind the first instead of killing
+# it, and no manual re-run is ever needed to recover a deploy that silently did not happen.
+# The rest of the fleet (LotteryApp, Net10Sudoku, DevSecOpsSentinel) settled on the same
+# answer for the same reason. PR runs still cancel their own supersedes, which is where the
+# saved minutes actually are.
 concurrency:
   group: frontend-deploy-${{ github.event_name }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   build-and-deploy:
