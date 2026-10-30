@@ -104,6 +104,16 @@ which builds, runs the test gate, and deploys to **Azure Static Web Apps** — r
 environment via `production_branch: frontend`. The same SWA serves whichever backend is currently
 deployed; the backends deploy independently from their own branches.
 
+**The concurrency group names the event, and has to.** Merging a pull request starts two runs of this
+workflow in the same second: the push to `frontend`, which deploys, and the pull request's `closed`
+event, which tears the preview environment down. The group was keyed on `github.ref` alone, and on a
+merged pull request's closed event that no longer separates the two — so both landed in one group and
+`cancel-in-progress: true` let the teardown cancel the deploy. Nothing went red, because a cancelled
+run is not a failed run and the teardown finished green; production simply kept serving the previous
+build. It raced that way from 2026-10-02 until 2026-10-29, when a health sweep found no successful
+push deploy in retained history. `${{ github.event_name }}` in the group restores the intent: a deploy
+is superseded only by a newer deploy. DevSecOps Sentinel's **GHA013** now scans for the broken shape.
+
 ## Relationship to the backends
 
 TaskBoard is one app with two interchangeable backend implementations, each on its own branch:
