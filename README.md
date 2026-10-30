@@ -60,6 +60,7 @@ injected by the deploy workflow.
 | `npm test` | Run the Vitest suite once (CI mode) |
 | `npm run test:coverage` | Run the suite and print a coverage report |
 | `npm run test:watch` | Vitest in watch mode |
+| `npm run depcruise` | Check the import rules (dependency-cruiser) |
 
 ## Testing
 
@@ -70,6 +71,11 @@ npm run test:coverage # run with a coverage report
 
 Vitest reuses Vite's transform pipeline, so `.jsx` tests compile exactly like the app. Tests live next
 to the code they cover as `*.test.{js,jsx}` under `src/`.
+
+Alongside the tests, [`.dependency-cruiser.cjs`](.dependency-cruiser.cjs) pins three error-level import
+rules — no circular imports, production code never imports test files or helpers, and every import must
+resolve. `npm run depcruise` checks them locally; the deploy workflow runs the same script right after
+the tests, so a violation blocks the deploy exactly like a failing test.
 
 ### Coverage
 
