@@ -17,7 +17,7 @@ the companion [CI/CD pipeline testing guide](../deployment/pipeline.md).
 | Layer | Project / folder | Framework | What it covers |
 | ----- | ---------------- | --------- | -------------- |
 | Frontend | `frontend/src/**/*.test.{js,jsx}` | **Vitest** + React Testing Library | Pure helpers, a component, and the `useTodos` hook (optimistic move + error handling). |
-| API — unit | `tests/TodoApp.UnitTests` | **xUnit** + FluentAssertions | Domain invariants and CQRS handlers (ownership, concurrency, auth/refresh) against real EF Core over in-memory SQLite. |
+| API — unit | `tests/TodoApp.UnitTests` | **xUnit** + FluentAssertions | Domain invariants and CQRS handlers (ownership, concurrency, auth/refresh) against real EF Core over in-memory SQLite, plus the NetArchTest architecture rules in `Architecture/` (see §3.1). |
 | API — integration | `tests/TodoApp.IntegrationTests` | **xUnit** + `WebApplicationFactory<Program>` | The whole API in-process, hit over HTTP end-to-end (register → authorize → call endpoints). |
 | API — smoke | `scripts/todoapp-smoketest.ps1` | **PowerShell** (`Invoke-WebRequest`) | Every endpoint over HTTP against a *running* instance — a fast health / regression check (see §3.5). |
 
@@ -251,6 +251,12 @@ await act.Should().ThrowAsync<NotFoundException>();
 
 Domain-only tests are even simpler — new up the entity and assert its behavior (see
 `Domain/TodoItemTests.cs` for the pattern).
+
+**Architecture rules** — `Architecture/ArchitectureTests.cs` runs NetArchTest over the compiled
+assemblies: Domain references no other layer and no persistence or web package, Application reaches
+only inward (EF Core is this lane's one deliberate exception — `IApplicationDbContext` hands
+`DbSet<T>` to the handlers), and Infrastructure never references the web layer. A violation fails
+naming the offending types, so a stray package install surfaces in the PR that adds it.
 
 ### 3.2 Integration tests — `tests/TodoApp.IntegrationTests`
 
