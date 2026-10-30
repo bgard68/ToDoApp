@@ -15,8 +15,14 @@ permissions:
   contents: read
   pull-requests: write
 
+# Scoped by event name as well as ref. Merging a PR starts two runs at once: the push to
+# frontend (the production deploy) and the PR's "closed" teardown; with ref-only groups the
+# closed event landed in the push run's group and cancel-in-progress killed the deploy —
+# every losing race since at least 2026-10-02 shipped nothing while the teardown showed
+# green. With the event in the group, a production deploy is only ever superseded by a
+# newer production deploy, and PR runs cancel only each other.
 concurrency:
-  group: frontend-deploy-${{ github.ref }}
+  group: frontend-deploy-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
