@@ -30,6 +30,11 @@ Because there's no `DbContext` anymore, the test harness was rebuilt on the Dapp
   file-backed SQLite database** (unique temp file per factory) via config override, letting the app's
   own startup path build the schema and seed demo data. (A file DB rather than in-memory sidesteps the
   shared-connection lifetime issue — see [refactor-bugs.md](refactor-bugs.md#3-in-memory-sqlite-died-under-per-request-connections).)
+- **`tests/…UnitTests/Architecture/ArchitectureTests.cs`** — NetArchTest rules over the compiled
+  assemblies, run with the rest of the unit suite: Domain references no other layer, Application stays
+  completely persistence-free (handlers talk to repository interfaces only — unlike the EF lane, there
+  is no carve-out), and neither Dapper, ADO.NET nor ASP.NET types may appear inward of Infrastructure.
+  A failure names the offending types.
 
 ## Smoke test (every endpoint, incl. Google)
 
