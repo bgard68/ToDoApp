@@ -33,7 +33,7 @@
          Microsoft.Data.SqlClient 6.1.6. Pinned on the 10.0.x line to match the net10.0
          target; 9.0.21 is the equivalent fix on the 9.0.x line. Remove once
          Microsoft.Data.SqlClient ships a fixed dependency. -->
-    <PackageReference Include="System.Security.Cryptography.Pkcs" Version="10.0.14" />
+    <PackageReference Include="System.Security.Cryptography.Pkcs" Version="11.0.0" />
   </ItemGroup>
 
   <ItemGroup>
