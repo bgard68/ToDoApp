@@ -20,12 +20,12 @@
     "@testing-library/dom": "^10.4.2",
     "@testing-library/jest-dom": "^6.6.3",
     "@testing-library/react": "^16.3.3",
-    "@testing-library/user-event": "^14.6.8",
-    "@vitejs/plugin-react": "^6.2.1",
+    "@testing-library/user-event": "^14.6.9",
+    "@vitejs/plugin-react": "^6.3.0",
     "@vitest/coverage-v8": "^5.1.0",
     "dependency-cruiser": "^18.7.2",
     "jsdom": "^25.0.1",
-    "vite": "^8.3.5",
+    "vite": "^8.3.8",
     "vitest": "^5.0.0"
   }
 }
